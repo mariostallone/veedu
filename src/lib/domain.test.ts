@@ -6,9 +6,17 @@ import {
   addDays,
   daysBetween,
   expiryStatus,
+  filterTodosByOwner,
   formatQty,
   groupBy,
   initials,
+  monthGrid,
+  monthTitle,
+  quickPickDate,
+  recentlyDone,
+  repeatLabel,
+  shiftMonth,
+  weekdayOf,
   relativeDay,
   restockQty,
   todoBucket,
@@ -107,4 +115,61 @@ test('initials', () => {
   assert.equal(initials('Priya'), 'P');
   assert.equal(initials('  amma appa extra '), 'AA');
   assert.equal(initials(''), '?');
+});
+
+// --- To-dos (M3) ---
+
+test('repeatLabel', () => {
+  assert.equal(repeatLabel(null), null);
+  assert.equal(repeatLabel(1), 'Every day');
+  assert.equal(repeatLabel(7, '2026-11-22'), 'Every Sunday');
+  assert.equal(repeatLabel(7, null), 'Every week');
+  assert.equal(repeatLabel(14, '2026-11-22'), 'Every 2 weeks');
+  assert.equal(repeatLabel(30), 'Every month');
+  assert.equal(repeatLabel(5), 'Every 5 days');
+});
+
+test('weekdayOf', () => {
+  assert.equal(weekdayOf('2026-11-18'), 3);
+  assert.equal(weekdayOf('2026-11-22'), 0);
+});
+
+test('quickPickDate (Wed 2026-11-18)', () => {
+  const today = '2026-11-18';
+  assert.equal(quickPickDate('today', today), '2026-11-18');
+  assert.equal(quickPickDate('tomorrow', today), '2026-11-19');
+  assert.equal(quickPickDate('weekend', today), '2026-11-21');
+  assert.equal(quickPickDate('next_week', today), '2026-11-23');
+  assert.equal(quickPickDate('weekend', '2026-11-21'), '2026-11-21');
+  assert.equal(quickPickDate('weekend', '2026-11-22'), '2026-11-22');
+  assert.equal(quickPickDate('next_week', '2026-11-23'), '2026-11-30');
+});
+
+test('monthGrid starts on Monday and pads with nulls', () => {
+  const weeks = monthGrid(2026, 10); // November 2026 starts on a Sunday
+  assert.equal(weeks[0].filter((d) => d === null).length, 6);
+  assert.equal(weeks[0][6], '2026-11-01');
+  assert.equal(weeks.at(-1)?.includes('2026-11-30'), true);
+  assert.ok(weeks.every((w) => w.length === 7));
+  assert.equal(weeks.flat().filter(Boolean).length, 30);
+});
+
+test('shiftMonth and monthTitle wrap years', () => {
+  assert.deepEqual(shiftMonth(2026, 11, 1), { year: 2027, month: 0 });
+  assert.deepEqual(shiftMonth(2026, 0, -1), { year: 2025, month: 11 });
+  assert.equal(monthTitle(2026, 10), 'November 2026');
+});
+
+test('filterTodosByOwner', () => {
+  const items = [{ owner_id: 'a' }, { owner_id: 'b' }, { owner_id: null }];
+  assert.equal(filterTodosByOwner(items, 'everyone', 'a', ['b']).length, 3);
+  assert.deepEqual(filterTodosByOwner(items, 'mine', 'a', ['b']), [{ owner_id: 'a' }]);
+  assert.deepEqual(filterTodosByOwner(items, 'partner', 'a', ['b']), [{ owner_id: 'b' }]);
+});
+
+test('recentlyDone returns newest first, capped', () => {
+  const items = Array.from({ length: 12 }, (_, i) => ({ done_at: `2026-11-${String(i + 1).padStart(2, '0')}T10:00:00Z` }));
+  const out = recentlyDone(items, 10);
+  assert.equal(out.length, 10);
+  assert.equal(out[0].done_at, '2026-11-12T10:00:00Z');
 });
