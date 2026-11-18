@@ -143,3 +143,216 @@ export function initials(name: string): string {
       .join('') || '?'
   );
 }
+
+// --- Home (M5) ---
+
+export type HomeStats = {
+  /** Pantry items below their keep-at-least level. */
+  low: number;
+  /** Pantry items expired or expiring within 30 days. */
+  expiring: number;
+  /** Unchecked items on the shopping list. */
+  shopping: number;
+  /** Unchecked to-dos that are overdue or due within the next 7 days. */
+  todosThisWeek: number;
+};
+
+export function homeStats(
+  pantry: readonly { qty: number; keep_min: number; expires_on: IsoDate | null }[],
+  todos: readonly { done: boolean; due_on: IsoDate | null }[],
+  shoppingOpen: number,
+  today: IsoDate,
+): HomeStats {
+  let low = 0;
+  let expiring = 0;
+  for (const p of pantry) {
+    if (isLow(p)) low += 1;
+    const kind = expiryStatus(p.expires_on, today).kind;
+    if (kind === 'soon' || kind === 'expired') expiring += 1;
+  }
+  const todosThisWeek = todos.filter((t) => {
+    const b = todoBucket(t, today);
+    return b === 'overdue' || b === 'today' || b === 'this_week';
+  }).length;
+  return { low, expiring, shopping: shoppingOpen, todosThisWeek };
+}
+
+export type AttentionKind = 'overdue' | 'expired' | 'expiring' | 'low';
+
+export type AttentionItem = {
+  key: string;
+  kind: AttentionKind;
+  title: string;
+  detail: string;
+  /** Tab the item lives on. */
+  tab: 'pantry' | 'todo';
+};
+
+/**
+ * Everything that needs a look, most urgent first: overdue to-dos, expired, expiring within
+ * 7 days (soonest first), then low stock. Returns the first `max` plus the full list length.
+ */
+export function needsAttention(
+  pantry: readonly {
+    id: string;
+    name: string;
+    unit: string;
+    qty: number;
+    keep_min: number;
+    expires_on: IsoDate | null;
+  }[],
+  todos: readonly { id: string; text: string; done: boolean; due_on: IsoDate | null }[],
+  today: IsoDate,
+  max = 5,
+): { items: AttentionItem[]; all: AttentionItem[]; total: number } {
+  const overdue: (AttentionItem & { days: number })[] = [];
+  for (const t of todos) {
+    if (todoBucket(t, today) !== 'overdue' || !t.due_on) continue;
+    overdue.push({
+      key: `todo:${t.id}`,
+      kind: 'overdue',
+      title: t.text,
+      detail: `Due ${relativeDay(t.due_on, today).toLowerCase()}`,
+      tab: 'todo',
+      days: daysBetween(today, t.due_on),
+    });
+  }
+  overdue.sort((a, b) => a.days - b.days);
+
+  const expiry: (AttentionItem & { days: number })[] = [];
+  const low: AttentionItem[] = [];
+  for (const p of pantry) {
+    const status = expiryStatus(p.expires_on, today, 7);
+    if (status.kind === 'expired' || status.kind === 'soon') {
+      const when = p.expires_on ? relativeDay(p.expires_on, today).toLowerCase() : '';
+      expiry.push({
+        key: `expiry:${p.id}`,
+        kind: status.kind === 'expired' ? 'expired' : 'expiring',
+        title: p.name,
+        detail: status.kind === 'expired' ? `Expired ${when}` : `Expires ${when}`,
+        tab: 'pantry',
+        days: status.days,
+      });
+    } else if (isLow(p)) {
+      low.push({
+        key: `low:${p.id}`,
+        kind: 'low',
+        title: p.name,
+        detail: `${formatQty(p.qty, p.unit)} left, keep ${formatQty(p.keep_min, p.unit)}`,
+        tab: 'pantry',
+      });
+    }
+  }
+  expiry.sort((a, b) => a.days - b.days);
+  const strip = ({ days: _days, ...rest }: AttentionItem & { days: number }): AttentionItem => rest;
+  const all = [...overdue.map(strip), ...expiry.map(strip), ...low];
+  return { items: all.slice(0, max), all, total: all.length };
+}
+
+export type ActivityVerb = 'added' | 'checked_off' | 'updated';
+
+export type ActivityEntry = {
+  key: string;
+  userId: string | null;
+  verb: ActivityVerb;
+  /** List title, or "Pantry". */
+  target: string;
+  count: number;
+  /** Item names, newest first (up to 3). */
+  texts: string[];
+  /** Latest event time, epoch ms. */
+  atMs: number;
+};
+
+const HOUR_MS = 3_600_000;
+
+/**
+ * Who did what in the last 7 days, from created_at/created_by and done_at/done_by on list
+ * items and created/updated on pantry items. Events by the same person, on the same list and
+ * of the same kind within the same clock hour (UTC) are merged. Newest first.
+ */
+export function recentActivity(
+  listItems: readonly {
+    text: string;
+    list_id: string;
+    created_by: string | null;
+    created_at: string;
+    done: boolean;
+    done_at: string | null;
+    done_by: string | null;
+  }[],
+  lists: readonly { id: string; title: string }[],
+  pantry: readonly {
+    name: string;
+    created_by: string | null;
+    created_at: string;
+    updated_by: string | null;
+    updated_at: string;
+  }[],
+  nowMs: number,
+  days = 7,
+): ActivityEntry[] {
+  const since = nowMs - days * 24 * HOUR_MS;
+  const titles = new Map(lists.map((l) => [l.id, l.title]));
+  const events: { userId: string | null; verb: ActivityVerb; target: string; text: string; at: number }[] = [];
+  const within = (at: number) => Number.isFinite(at) && at >= since && at <= nowMs + HOUR_MS;
+
+  for (const it of listItems) {
+    const target = titles.get(it.list_id);
+    if (!target) continue;
+    const created = Date.parse(it.created_at);
+    if (within(created)) events.push({ userId: it.created_by, verb: 'added', target, text: it.text, at: created });
+    if (it.done && it.done_at) {
+      const done = Date.parse(it.done_at);
+      if (within(done)) events.push({ userId: it.done_by, verb: 'checked_off', target, text: it.text, at: done });
+    }
+  }
+  for (const p of pantry) {
+    const created = Date.parse(p.created_at);
+    const updated = Date.parse(p.updated_at);
+    if (within(created)) events.push({ userId: p.created_by, verb: 'added', target: 'Pantry', text: p.name, at: created });
+    // Ignore the touch that happens within a minute of creation (triggers, initial edits).
+    if (within(updated) && updated - created > 60_000) {
+      events.push({ userId: p.updated_by, verb: 'updated', target: 'Pantry', text: p.name, at: updated });
+    }
+  }
+
+  events.sort((a, b) => b.at - a.at);
+  const merged = new Map<string, ActivityEntry>();
+  for (const e of events) {
+    const key = `${e.userId ?? '-'}|${e.verb}|${e.target}|${Math.floor(e.at / HOUR_MS)}`;
+    const entry = merged.get(key);
+    if (entry) {
+      entry.count += 1;
+      if (entry.texts.length < 3) entry.texts.push(e.text);
+    } else {
+      merged.set(key, { key, userId: e.userId, verb: e.verb, target: e.target, count: 1, texts: [e.text], atMs: e.at });
+    }
+  }
+  return [...merged.values()].sort((a, b) => b.atMs - a.atMs);
+}
+
+/** "Priya added 5 items to Shopping", "Arjun checked off Pashmina shawl". */
+export function describeActivity(entry: ActivityEntry, who: string): string {
+  const one = entry.count === 1;
+  const items = `${entry.count} items`;
+  const pantry = entry.target === 'Pantry';
+  switch (entry.verb) {
+    case 'added':
+      return `${who} added ${one ? entry.texts[0] : items} to ${entry.target}`;
+    case 'checked_off':
+      return one ? `${who} checked off ${entry.texts[0]}` : `${who} checked off ${items} on ${entry.target}`;
+    case 'updated':
+      return one ? `${who} updated ${entry.texts[0]}` : `${who} updated ${items} in ${pantry ? 'the Pantry' : entry.target}`;
+  }
+}
+
+/** "just now", "5m ago", "3h ago", "2d ago". */
+export function timeAgo(atMs: number, nowMs: number): string {
+  const mins = Math.floor((nowMs - atMs) / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
