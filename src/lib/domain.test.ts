@@ -5,18 +5,23 @@ import { test } from 'node:test';
 import {
   addDays,
   daysBetween,
+  DEFAULT_STORES,
   expiryLabel,
   expiryStatus,
   filterPantry,
+  findDuplicateItem,
   formatQty,
   groupBy,
+  groupShopping,
   initials,
   isValidIsoDate,
   mergeSuggestions,
   parseQty,
+  parseQuickAdd,
   relativeDay,
   restockQty,
   stockLevel,
+  storeOptions,
   todoBucket,
   tripProgress,
 } from './domain.ts';
@@ -163,4 +168,60 @@ test('expiryLabel', () => {
   assert.equal(expiryLabel({ kind: 'expired', days: -5 }), 'Expired 5d ago');
   assert.equal(expiryLabel({ kind: 'soon', days: 0 }), 'Expires today');
   assert.equal(expiryLabel({ kind: 'soon', days: 12 }), 'Expires in 12d');
+});
+
+// --- Shopping (M2) ---
+
+test('parseQuickAdd reads trailing and leading quantities', () => {
+  assert.deepEqual(parseQuickAdd('milk x2'), { text: 'milk', qty: 2 });
+  assert.deepEqual(parseQuickAdd('Milk ×2'), { text: 'Milk', qty: 2 });
+  assert.deepEqual(parseQuickAdd('basmati rice X 3'), { text: 'basmati rice', qty: 3 });
+  assert.deepEqual(parseQuickAdd('2 milk'), { text: 'milk', qty: 2 });
+  assert.deepEqual(parseQuickAdd('2x milk'), { text: 'milk', qty: 2 });
+  assert.deepEqual(parseQuickAdd('3 x toor dal'), { text: 'toor dal', qty: 3 });
+  assert.deepEqual(parseQuickAdd('1.5 onions'), { text: 'onions', qty: 1.5 });
+  assert.deepEqual(parseQuickAdd('  eggs  '), { text: 'eggs', qty: 1 });
+});
+
+test('parseQuickAdd leaves numbers that belong to the name', () => {
+  assert.deepEqual(parseQuickAdd('2% milk'), { text: '2% milk', qty: 1 });
+  assert.deepEqual(parseQuickAdd('7up'), { text: '7up', qty: 1 });
+  assert.deepEqual(parseQuickAdd('2'), { text: '2', qty: 1 });
+  assert.deepEqual(parseQuickAdd('x2'), { text: 'x2', qty: 1 });
+  assert.deepEqual(parseQuickAdd('0 milk'), { text: 'milk', qty: 1 });
+});
+
+test('findDuplicateItem matches unchecked items by name', () => {
+  const items = [
+    { text: 'Milk', done: false },
+    { text: 'Eggs', done: true },
+  ];
+  assert.equal(findDuplicateItem(items, '  milk '), items[0]);
+  assert.equal(findDuplicateItem(items, 'eggs'), undefined);
+  assert.equal(findDuplicateItem(items, 'bread'), undefined);
+  assert.equal(findDuplicateItem(items, ''), undefined);
+});
+
+test('storeOptions puts used stores first, then unused defaults', () => {
+  const items = [{ group_name: 'Lidl' }, { group_name: 'Costco' }, { group_name: 'Lidl' }, { group_name: null }];
+  assert.deepEqual(storeOptions(items), ['Lidl', 'Costco', 'Indian grocery', 'Supermarket']);
+  assert.deepEqual(storeOptions([]), [...DEFAULT_STORES]);
+});
+
+test('groupShopping groups unchecked by store and separates the cart', () => {
+  const items = [
+    { id: 1, done: false, group_name: 'Costco' },
+    { id: 2, done: true, group_name: 'Costco' },
+    { id: 3, done: false, group_name: null },
+    { id: 4, done: false, group_name: 'Costco' },
+  ];
+  const { toBuy, inCart } = groupShopping(items);
+  assert.deepEqual(
+    toBuy.map((g) => [g.key, g.items.map((i) => i.id)]),
+    [
+      ['Costco', [1, 4]],
+      ['No store', [3]],
+    ],
+  );
+  assert.deepEqual(inCart.map((i) => i.id), [2]);
 });

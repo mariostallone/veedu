@@ -229,3 +229,66 @@ export function expiryLabel(status: ExpiryStatus): string | null {
   if (status.kind === 'soon') return status.days === 0 ? 'Expires today' : `Expires in ${status.days}d`;
   return null;
 }
+
+// --- Shopping (M2) ---
+
+/**
+ * Splits quick-add text into a name and quantity: "milk x2", "milk ×2", "2 milk" and "2x milk"
+ * all give { text: 'milk', qty: 2 }. No quantity means 1. A number that is part of the name
+ * ("7up", "2% milk") is left alone.
+ */
+export function parseQuickAdd(input: string): { text: string; qty: number } {
+  const s = input.trim().replace(/\s+/g, ' ');
+  const trailing = s.match(/^(.*\S)\s+[x×]\s?(\d+(?:\.\d+)?)$/i);
+  if (trailing) return finishQuickAdd(trailing[1], trailing[2]);
+  const leading = s.match(/^(\d+(?:\.\d+)?)\s?(?:[x×]\s+|[x×](?=[a-z])|\s)(.*\S)$/i);
+  if (leading) return finishQuickAdd(leading[2], leading[1]);
+  return { text: s, qty: 1 };
+}
+
+function finishQuickAdd(text: string, rawQty: string): { text: string; qty: number } {
+  const qty = Number(rawQty);
+  return { text, qty: qty > 0 ? qty : 1 };
+}
+
+/** The unchecked item with the same name (ignoring case and spacing), if any. */
+export function findDuplicateItem<T extends { text: string; done: boolean }>(
+  items: readonly T[],
+  text: string,
+): T | undefined {
+  const norm = (t: string) => t.trim().replace(/\s+/g, ' ').toLowerCase();
+  const wanted = norm(text);
+  if (!wanted) return undefined;
+  return items.find((i) => !i.done && norm(i.text) === wanted);
+}
+
+export const DEFAULT_STORES: readonly string[] = ['Indian grocery', 'Supermarket', 'Costco'];
+
+/** Store chips: stores already used on the list first (most used first), then the defaults. */
+export function storeOptions(
+  items: readonly { group_name: string | null }[],
+  defaults: readonly string[] = DEFAULT_STORES,
+): string[] {
+  const counts = new Map<string, number>();
+  for (const it of items) {
+    const name = it.group_name?.trim();
+    if (name) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  const used = [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+  const seen = new Set(used.map((n) => n.toLowerCase()));
+  return [...used, ...defaults.filter((d) => !seen.has(d.toLowerCase()))];
+}
+
+/** Shopping list layout: unchecked items grouped by store, checked items in one "in the cart" list. */
+export function groupShopping<T extends { done: boolean; group_name: string | null }>(
+  items: readonly T[],
+): { toBuy: Group<T>[]; inCart: T[] } {
+  return {
+    toBuy: groupBy(
+      items.filter((i) => !i.done),
+      (i) => i.group_name,
+      { fallback: 'No store' },
+    ),
+    inCart: items.filter((i) => i.done),
+  };
+}
