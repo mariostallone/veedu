@@ -158,8 +158,6 @@ export const DEFAULT_PANTRY_CATEGORIES = [
 
 export const DEFAULT_PANTRY_UNITS = ['pack', 'bag', 'box', 'bottle', 'roll', 'kg', 'g'] as const;
 
-export const DEFAULT_STORES = ['Supermarket', 'Local kirana', 'Online'] as const;
-
 export type QuickAddPantry = { name: string; category: string; unit: string; keep_min: number };
 
 export const QUICK_ADD_PANTRY: readonly QuickAddPantry[] = [
@@ -391,13 +389,6 @@ export function recentlyDone<T extends { done_at: string | null }>(items: readon
 }
 
 // --- Trips (M4) ---
-
-/** True for a real calendar date written as YYYY-MM-DD. */
-export function isValidIsoDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const d = new Date(Date.UTC(+value.slice(0, 4), +value.slice(5, 7) - 1, +value.slice(8, 10)));
-  return d.toISOString().slice(0, 10) === value;
-}
 
 /** Parses a typed amount ("1,200", "45.5"); empty gives null, junk or negatives give NaN. */
 export function parseAmount(text: string): number | null {
