@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { unregisterPush } from '@/features/notifications/push';
 import { useHousehold, useSession } from '@/lib/session';
 import { supabase, unwrap } from '@/lib/supabase';
 import type { Household, Member } from '@/lib/types';
@@ -82,6 +83,7 @@ export function useUpdateMyName() {
 }
 
 export async function signOut() {
+  await unregisterPush();
   await supabase.auth.signOut();
 }
 

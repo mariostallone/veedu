@@ -1,6 +1,6 @@
 import * as Clipboard from 'expo-clipboard';
 import { useState } from 'react';
-import { Pressable, Share, Text, View } from 'react-native';
+import { Pressable, Share, Switch, Text, View } from 'react-native';
 
 import { Avatar, Button, Caption, Card, ErrorNote, Field, Row, Screen, SectionLabel } from '@/components/ui';
 import {
@@ -11,6 +11,14 @@ import {
   useRenameHousehold,
   useUpdateMyName,
 } from '@/features/household/api';
+import {
+  useEnablePush,
+  useNotificationPrefs,
+  usePushStatus,
+  useUpdateNotificationPrefs,
+} from '@/features/notifications/api';
+import { openSystemSettings } from '@/features/notifications/push';
+import { DIGEST_HOURS, formatDigestHour } from '@/lib/domain';
 import { useHousehold } from '@/lib/session';
 import { space, useColors } from '@/theme';
 
@@ -26,6 +34,10 @@ export default function Settings() {
   const leave = useLeaveHousehold();
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState<'regenerate' | 'leave' | null>(null);
+  const prefs = useNotificationPrefs();
+  const updatePrefs = useUpdateNotificationPrefs();
+  const pushStatus = usePushStatus();
+  const enablePush = useEnablePush();
 
   async function copyCode() {
     await Clipboard.setStringAsync(household.invite_code);
@@ -86,6 +98,82 @@ export default function Settings() {
           />
         ))}
       </Card>
+
+      {pushStatus.data !== 'unsupported' && prefs.data ? (
+        <>
+          <SectionLabel>Notifications</SectionLabel>
+          <Card style={{ paddingVertical: space.sm }}>
+            {pushStatus.data && pushStatus.data !== 'granted' ? (
+              <View style={{ paddingVertical: space.md, gap: space.sm }}>
+                <Caption>
+                  {pushStatus.data === 'denied'
+                    ? 'Notifications are turned off for Veedu in your phone’s settings.'
+                    : 'Turn on notifications to hear when your partner adds to the list.'}
+                </Caption>
+                <Button
+                  label={pushStatus.data === 'denied' ? 'Open phone settings' : 'Turn on notifications'}
+                  variant="secondary"
+                  loading={enablePush.isPending}
+                  onPress={() => (pushStatus.data === 'denied' ? openSystemSettings() : enablePush.mutate())}
+                />
+              </View>
+            ) : null}
+            <Row
+              title="Partner activity"
+              subtitle="When your partner adds items to Shopping"
+              right={
+                <Switch
+                  accessibilityLabel="Partner activity notifications"
+                  value={prefs.data.partner_activity}
+                  onValueChange={(v) => updatePrefs.mutate({ partner_activity: v })}
+                  trackColor={{ true: c.accent, false: c.border }}
+                />
+              }
+            />
+            <Row
+              title="Daily digest"
+              subtitle="Items expiring this week and to-dos due or overdue"
+              last={!prefs.data.daily_digest}
+              right={
+                <Switch
+                  accessibilityLabel="Daily digest notifications"
+                  value={prefs.data.daily_digest}
+                  onValueChange={(v) => updatePrefs.mutate({ daily_digest: v })}
+                  trackColor={{ true: c.accent, false: c.border }}
+                />
+              }
+            />
+            {prefs.data.daily_digest ? (
+              <View style={{ paddingVertical: space.md, gap: space.sm }}>
+                <Caption>Send the digest at</Caption>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+                  {DIGEST_HOURS.map((h) => {
+                    const on = h === prefs.data.digest_hour;
+                    return (
+                      <Pressable
+                        key={h}
+                        onPress={() => updatePrefs.mutate({ digest_hour: h })}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: on }}
+                        style={{
+                          borderWidth: 1,
+                          borderRadius: 999,
+                          paddingHorizontal: 12,
+                          paddingVertical: 7,
+                          borderColor: on ? c.accent : c.border,
+                          backgroundColor: on ? c.accentSoft : c.card,
+                        }}>
+                        <Text style={{ color: on ? c.accent : c.text, fontWeight: '600', fontSize: 13 }}>{formatDigestHour(h)}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+            <ErrorNote error={updatePrefs.error ?? enablePush.error} />
+          </Card>
+        </>
+      ) : null}
 
       <SectionLabel>Names</SectionLabel>
       <Card style={{ paddingVertical: space.lg, gap: space.md }}>

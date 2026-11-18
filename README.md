@@ -78,6 +78,41 @@ Apply the new migration too (`supabase db push`): it adds `pantry_items.barcode`
 
 Barcode scanning uses the phone camera (not available in the browser, where you can type the number instead) and looks products up on [Open Food Facts](https://world.openfoodfacts.org) directly from the app. Saving an item with a barcode remembers it, so scanning that code again opens the item. Every scan ends in a confirm step; nothing is saved silently.
 
+## Notifications
+
+Push notifications use Expo's push service. Two Edge Functions send them; the app only registers its token and stores preferences (Settings → Notifications).
+
+1. **EAS project id.** Run `npx eas-cli@latest init` once so `extra.eas.projectId` exists in `app.json`. Without it the app skips push registration (it logs a warning). Push needs a physical device and a development or production build, not Expo Go, and is skipped on web. iOS and Android credentials are set up through EAS (`eas credentials`).
+2. **Migration.** Apply `supabase/migrations/20261118040000_notifications.sql` (`push_tokens`, `notification_prefs` and the helper functions).
+3. **Deploy the functions** with the Supabase CLI:
+
+```bash
+supabase functions deploy notify-activity --no-verify-jwt
+```
+
+```bash
+supabase functions deploy daily-digest --no-verify-jwt
+```
+
+```bash
+supabase secrets set WEBHOOK_SECRET=<a long random string>
+```
+
+   Both functions refuse requests without the header `x-webhook-secret: <WEBHOOK_SECRET>`.
+4. **Partner activity.** Dashboard → Database → Webhooks → create a webhook on table `list_items`, event `Insert`, type *Supabase Edge Functions*, function `notify-activity`, with the HTTP header `x-webhook-secret`. A burst of added items is held for about 20 seconds and sent as one message ("Priya added 5 items to Shopping") to the other members.
+5. **Daily digest.** Schedule the function hourly (each person gets it at their own chosen local hour), for example with pg_cron and pg_net:
+
+```sql
+select cron.schedule('veedu-daily-digest', '0 * * * *', $$
+  select net.http_post(
+    url := 'https://<project-ref>.supabase.co/functions/v1/daily-digest',
+    headers := '{"x-webhook-secret": "<WEBHOOK_SECRET>"}'::jsonb
+  );
+$$);
+```
+
+The message-building, batching and time-zone logic lives in `supabase/functions/_shared/notify.ts` and is covered by `npm test`.
+
 ## Checks
 
 ```bash
@@ -106,12 +141,13 @@ src/app/                 routes (Expo Router)
   onboarding.tsx         create or join a household
   (app)/                 everything behind sign-in
     (tabs)/              Home, Pantry, Shop, Trips, To-do
-    settings.tsx         invite code, members, names, sign out
+    settings.tsx         invite code, members, notifications, names, sign out
 src/features/<feature>/  data hooks (api.ts) and feature components
 src/components/ui.tsx    shared UI building blocks
 scripts/                 database test runner, icon generator
 src/lib/                 Supabase client, session, realtime sync, pure domain logic
 supabase/migrations/     schema, RLS policies, triggers, RPCs
+supabase/functions/      Edge Functions (notify-activity, daily-digest) and tested shared logic
 supabase/tests/          database behaviour tests
 ```
 

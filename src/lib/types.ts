@@ -111,3 +111,22 @@ export type LabelScan = {
 
 /** One line found on a photographed shopping note. */
 export type NoteScanItem = { text: string; qty: number; store_guess: string | null };
+
+export type NotificationPrefs = {
+  user_id: string;
+  household_id: string | null;
+  partner_activity: boolean;
+  daily_digest: boolean;
+  /** Local hour of the day, 0-23, in `timezone`. */
+  digest_hour: number;
+  timezone: string;
+};
+
+export type PushToken = {
+  id: string;
+  user_id: string;
+  token: string;
+  platform: 'ios' | 'android' | 'web';
+  household_id: string | null;
+  created_at: string;
+};
