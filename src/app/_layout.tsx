@@ -1,22 +1,39 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useState } from 'react';
-import { useColorScheme } from 'react-native';
+import { useEffect, useState } from 'react';
+import { useColorScheme, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { OfflineBanner } from '@/components/offline-banner';
 import { Body, Loading, Screen } from '@/components/ui';
+import { registerListMutationDefaults } from '@/features/lists/api';
+import { registerPantryMutationDefaults } from '@/features/pantry/api';
+import {
+  CACHE_MAX_AGE,
+  cacheKey,
+  connectOnlineManager,
+  createQueryClient,
+  dehydrateOptions,
+  persister,
+} from '@/lib/offline';
 import { SessionProvider, useSession } from '@/lib/session';
-import { isSupabaseConfigured } from '@/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { palette } from '@/theme';
 
 export default function RootLayout() {
   const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
   const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
   const c = palette[scheme];
-  const [queryClient] = useState(
-    () => new QueryClient({ defaultOptions: { queries: { staleTime: 30_000, retry: 1 } } }),
-  );
+  const [queryClient] = useState(() => {
+    connectOnlineManager();
+    const client = createQueryClient();
+    // Defaults must exist before the persisted cache is restored so queued changes can resume.
+    registerListMutationDefaults(client);
+    registerPantryMutationDefaults(client);
+    return client;
+  });
 
   return (
     <SafeAreaProvider>
@@ -25,15 +42,44 @@ export default function RootLayout() {
           ...base,
           colors: { ...base.colors, primary: c.accent, background: c.background, card: c.card, text: c.text, border: c.border },
         }}>
-        <QueryClientProvider client={queryClient}>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{ persister, maxAge: CACHE_MAX_AGE, buster: cacheKey, dehydrateOptions }}
+          onSuccess={() => {
+            // Replay changes made offline before the app was closed, then refresh from the server.
+            queryClient
+              .resumePausedMutations()
+              .then(() => queryClient.invalidateQueries())
+              .catch(() => {});
+          }}>
           <SessionProvider>
+            <CacheGuard />
             <StatusBar style="auto" />
-            {isSupabaseConfigured ? <RootNavigator /> : <SetupNeeded />}
+            <View style={{ flex: 1 }}>
+              <OfflineBanner />
+              {isSupabaseConfigured ? <RootNavigator /> : <SetupNeeded />}
+            </View>
           </SessionProvider>
-        </QueryClientProvider>
+        </PersistQueryClientProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );
+}
+
+/** Wipes the persisted cache and any queued changes on sign-out, so nothing leaks to the next person. */
+function CacheGuard() {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    const { data } = supabase.auth.onAuthStateChange((event) => {
+      if (event !== 'SIGNED_OUT') return;
+      queryClient.getMutationCache().clear();
+      queryClient.clear();
+      persister.removeClient();
+    });
+    return () => data.subscription.unsubscribe();
+  }, [queryClient]);
+  return null;
 }
 
 /** Routes people to sign-in, household setup, or the app, based on where they are. */

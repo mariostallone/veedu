@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
+import { cachedHouseholdId } from '@/lib/offline';
 import { useHousehold } from '@/lib/session';
 import { supabase, unwrap } from '@/lib/supabase';
 import type { NewPantryItem, PantryItem } from '@/lib/types';
@@ -28,6 +29,37 @@ export function usePantryItem(id: string | undefined) {
   return { ...rest, data: id ? data?.find((p) => p.id === id) : undefined };
 }
 
+export const pantryMutationKeys = {
+  create: ['pantry', 'create'],
+  update: ['pantry', 'update'],
+  delete: ['pantry', 'delete'],
+  adjustQty: ['pantry', 'adjust-qty'],
+} as const;
+
+type PantryPatch = Partial<NewPantryItem> & { id: string };
+
+// Module-level so a queued offline change can resume after a restart (see registerPantryMutationDefaults).
+const createFn = async (householdId: string, item: NewPantryItem) =>
+  unwrap(await supabase.from('pantry_items').insert({ ...item, household_id: householdId }).select().single()) as PantryItem;
+const updateFn = async ({ id, ...patch }: PantryPatch) =>
+  unwrap(await supabase.from('pantry_items').update(patch).eq('id', id).select().single()) as PantryItem;
+const deleteFn = async (id: string) => {
+  unwrap(await supabase.from('pantry_items').delete().eq('id', id));
+};
+const adjustFn = async ({ id, delta }: { id: string; delta: number }) =>
+  unwrap(await supabase.rpc('adjust_pantry_qty', { p_id: id, p_delta: delta })) as PantryItem;
+
+/** Registers the defaults that let queued pantry mutations resume after a restart. */
+export function registerPantryMutationDefaults(queryClient: QueryClient) {
+  const k = pantryMutationKeys;
+  queryClient.setMutationDefaults(k.create, {
+    mutationFn: (v: NewPantryItem) => createFn(cachedHouseholdId(queryClient), v),
+  });
+  queryClient.setMutationDefaults(k.update, { mutationFn: updateFn });
+  queryClient.setMutationDefaults(k.delete, { mutationFn: deleteFn });
+  queryClient.setMutationDefaults(k.adjustQty, { mutationFn: adjustFn });
+}
+
 function useInvalidatePantryAndLists() {
   const queryClient = useQueryClient();
   // Pantry writes can add/remove shopping items through database triggers.
@@ -42,14 +74,8 @@ export function useCreatePantryItem() {
   const { household } = useHousehold();
   const invalidate = useInvalidatePantryAndLists();
   return useMutation({
-    mutationFn: async (item: NewPantryItem) =>
-      unwrap(
-        await supabase
-          .from('pantry_items')
-          .insert({ ...item, household_id: household.id })
-          .select()
-          .single(),
-      ) as PantryItem,
+    mutationKey: pantryMutationKeys.create,
+    mutationFn: (item: NewPantryItem) => createFn(household.id, item),
     onSettled: invalidate,
   });
 }
@@ -57,8 +83,8 @@ export function useCreatePantryItem() {
 export function useUpdatePantryItem() {
   const invalidate = useInvalidatePantryAndLists();
   return useMutation({
-    mutationFn: async ({ id, ...patch }: Partial<NewPantryItem> & { id: string }) =>
-      unwrap(await supabase.from('pantry_items').update(patch).eq('id', id).select().single()) as PantryItem,
+    mutationKey: pantryMutationKeys.update,
+    mutationFn: updateFn,
     onSettled: invalidate,
   });
 }
@@ -66,9 +92,8 @@ export function useUpdatePantryItem() {
 export function useDeletePantryItem() {
   const invalidate = useInvalidatePantryAndLists();
   return useMutation({
-    mutationFn: async (id: string) => {
-      unwrap(await supabase.from('pantry_items').delete().eq('id', id));
-    },
+    mutationKey: pantryMutationKeys.delete,
+    mutationFn: deleteFn,
     onSettled: invalidate,
   });
 }
@@ -80,8 +105,8 @@ export function useAdjustPantryQty() {
   const invalidate = useInvalidatePantryAndLists();
   const key = pantryKey(household.id);
   return useMutation({
-    mutationFn: async ({ id, delta }: { id: string; delta: number }) =>
-      unwrap(await supabase.rpc('adjust_pantry_qty', { p_id: id, p_delta: delta })) as PantryItem,
+    mutationKey: pantryMutationKeys.adjustQty,
+    mutationFn: adjustFn,
     onMutate: async ({ id, delta }) => {
       await queryClient.cancelQueries({ queryKey: key });
       const previous = queryClient.getQueryData<PantryItem[]>(key);

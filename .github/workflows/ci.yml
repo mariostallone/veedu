@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx expo lint
+      - run: npm test
+      # scripts/test-db.sh finds the Postgres binaries under /usr/lib/postgresql/*/bin and runs
+      # as the (non-root) runner user, so no chown or runuser is needed.
+      - run: npm run test:db
+      - name: Web export
+        run: npx expo export --platform web --output-dir dist
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: http://localhost:54321
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder

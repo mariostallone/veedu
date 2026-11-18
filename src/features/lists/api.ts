@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 
+import { cachedHouseholdId } from '@/lib/offline';
 import { useHousehold } from '@/lib/session';
 import { supabase, unwrap } from '@/lib/supabase';
 import type { List, ListItem, ListKind, NewListItem } from '@/lib/types';
@@ -62,6 +63,63 @@ export function useAllListItems() {
   });
 }
 
+export const listMutationKeys = {
+  createList: ['lists', 'create'],
+  updateList: ['lists', 'update'],
+  deleteList: ['lists', 'delete'],
+  addItem: ['items', 'add'],
+  addItems: ['items', 'add-many'],
+  updateItem: ['items', 'update'],
+  toggleItem: ['items', 'toggle'],
+  deleteItem: ['items', 'delete'],
+  clearDone: ['items', 'clear-done'],
+} as const;
+
+type NewList = Pick<List, 'kind' | 'title'> & Partial<Pick<List, 'starts_on' | 'budget'>>;
+type ListPatch = Partial<Omit<List, 'id' | 'household_id' | 'kind'>> & { id: string };
+type ItemPatch = Partial<Omit<NewListItem, 'list_id'>> & { id: string };
+
+// The mutation functions live outside the hooks so they can also run after an app restart,
+// when a queued offline change is resumed without any screen mounted.
+const createListFn = async (householdId: string, list: NewList) =>
+  unwrap(await supabase.from('lists').insert({ ...list, household_id: householdId }).select().single()) as List;
+const updateListFn = async ({ id, ...patch }: ListPatch) =>
+  unwrap(await supabase.from('lists').update(patch).eq('id', id).select().single()) as List;
+const deleteListFn = async (id: string) => {
+  unwrap(await supabase.from('lists').delete().eq('id', id));
+};
+const addItemFn = async (householdId: string, item: NewListItem) =>
+  unwrap(await supabase.from('list_items').insert({ ...item, household_id: householdId }).select().single()) as ListItem;
+const addItemsFn = async (householdId: string, items: NewListItem[]) =>
+  unwrap(
+    await supabase.from('list_items').insert(items.map((i) => ({ ...i, household_id: householdId }))).select(),
+  ) as ListItem[];
+const updateItemFn = async ({ id, ...patch }: ItemPatch) =>
+  unwrap(await supabase.from('list_items').update(patch).eq('id', id).select().single()) as ListItem;
+const toggleItemFn = async ({ item, done }: { item: ListItem; done: boolean }) =>
+  unwrap(await supabase.from('list_items').update({ done }).eq('id', item.id).select().single()) as ListItem;
+const deleteItemFn = async (id: string) => {
+  unwrap(await supabase.from('list_items').delete().eq('id', id));
+};
+const clearDoneFn = async (listId: string) => {
+  unwrap(await supabase.from('list_items').delete().eq('list_id', listId).eq('done', true));
+};
+
+/** Registers the defaults that let queued list mutations resume after a restart. */
+export function registerListMutationDefaults(queryClient: QueryClient) {
+  const k = listMutationKeys;
+  const hid = () => cachedHouseholdId(queryClient);
+  queryClient.setMutationDefaults(k.createList, { mutationFn: (v: NewList) => createListFn(hid(), v) });
+  queryClient.setMutationDefaults(k.updateList, { mutationFn: updateListFn });
+  queryClient.setMutationDefaults(k.deleteList, { mutationFn: deleteListFn });
+  queryClient.setMutationDefaults(k.addItem, { mutationFn: (v: NewListItem) => addItemFn(hid(), v) });
+  queryClient.setMutationDefaults(k.addItems, { mutationFn: (v: NewListItem[]) => addItemsFn(hid(), v) });
+  queryClient.setMutationDefaults(k.updateItem, { mutationFn: updateItemFn });
+  queryClient.setMutationDefaults(k.toggleItem, { mutationFn: toggleItemFn });
+  queryClient.setMutationDefaults(k.deleteItem, { mutationFn: deleteItemFn });
+  queryClient.setMutationDefaults(k.clearDone, { mutationFn: clearDoneFn });
+}
+
 function useInvalidateItems() {
   const queryClient = useQueryClient();
   // List writes can change pantry counts through database triggers.
@@ -76,14 +134,8 @@ export function useCreateList() {
   const { household } = useHousehold();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (list: Pick<List, 'kind' | 'title'> & Partial<Pick<List, 'starts_on' | 'budget'>>) =>
-      unwrap(
-        await supabase
-          .from('lists')
-          .insert({ ...list, household_id: household.id })
-          .select()
-          .single(),
-      ) as List,
+    mutationKey: listMutationKeys.createList,
+    mutationFn: (list: NewList) => createListFn(household.id, list),
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['lists'] }),
   });
 }
@@ -91,8 +143,8 @@ export function useCreateList() {
 export function useUpdateList() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...patch }: Partial<Omit<List, 'id' | 'household_id' | 'kind'>> & { id: string }) =>
-      unwrap(await supabase.from('lists').update(patch).eq('id', id).select().single()) as List,
+    mutationKey: listMutationKeys.updateList,
+    mutationFn: updateListFn,
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['lists'] }),
   });
 }
@@ -100,9 +152,8 @@ export function useUpdateList() {
 export function useDeleteList() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      unwrap(await supabase.from('lists').delete().eq('id', id));
-    },
+    mutationKey: listMutationKeys.deleteList,
+    mutationFn: deleteListFn,
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['lists'] }),
   });
 }
@@ -111,15 +162,9 @@ export function useAddListItem() {
   const { household } = useHousehold();
   const invalidate = useInvalidateItems();
   return useMutation({
+    mutationKey: listMutationKeys.addItem,
     // household_id is overwritten from the list by a database trigger; it is sent to satisfy the type.
-    mutationFn: async (item: NewListItem) =>
-      unwrap(
-        await supabase
-          .from('list_items')
-          .insert({ ...item, household_id: household.id })
-          .select()
-          .single(),
-      ) as ListItem,
+    mutationFn: (item: NewListItem) => addItemFn(household.id, item),
     onSettled: invalidate,
   });
 }
@@ -128,13 +173,8 @@ export function useAddListItems() {
   const { household } = useHousehold();
   const invalidate = useInvalidateItems();
   return useMutation({
-    mutationFn: async (items: NewListItem[]) =>
-      unwrap(
-        await supabase
-          .from('list_items')
-          .insert(items.map((i) => ({ ...i, household_id: household.id })))
-          .select(),
-      ) as ListItem[],
+    mutationKey: listMutationKeys.addItems,
+    mutationFn: (items: NewListItem[]) => addItemsFn(household.id, items),
     onSettled: invalidate,
   });
 }
@@ -142,8 +182,8 @@ export function useAddListItems() {
 export function useUpdateListItem() {
   const invalidate = useInvalidateItems();
   return useMutation({
-    mutationFn: async ({ id, ...patch }: Partial<Omit<NewListItem, 'list_id'>> & { id: string }) =>
-      unwrap(await supabase.from('list_items').update(patch).eq('id', id).select().single()) as ListItem,
+    mutationKey: listMutationKeys.updateItem,
+    mutationFn: updateItemFn,
     onSettled: invalidate,
   });
 }
@@ -153,8 +193,8 @@ export function useToggleListItem() {
   const queryClient = useQueryClient();
   const invalidate = useInvalidateItems();
   return useMutation({
-    mutationFn: async ({ item, done }: { item: ListItem; done: boolean }) =>
-      unwrap(await supabase.from('list_items').update({ done }).eq('id', item.id).select().single()) as ListItem,
+    mutationKey: listMutationKeys.toggleItem,
+    mutationFn: toggleItemFn,
     onMutate: async ({ item, done }) => {
       const key = itemsKey(item.list_id);
       await queryClient.cancelQueries({ queryKey: key });
@@ -174,9 +214,8 @@ export function useToggleListItem() {
 export function useDeleteListItem() {
   const invalidate = useInvalidateItems();
   return useMutation({
-    mutationFn: async (id: string) => {
-      unwrap(await supabase.from('list_items').delete().eq('id', id));
-    },
+    mutationKey: listMutationKeys.deleteItem,
+    mutationFn: deleteItemFn,
     onSettled: invalidate,
   });
 }
@@ -185,9 +224,8 @@ export function useDeleteListItem() {
 export function useClearDone() {
   const invalidate = useInvalidateItems();
   return useMutation({
-    mutationFn: async (listId: string) => {
-      unwrap(await supabase.from('list_items').delete().eq('list_id', listId).eq('done', true));
-    },
+    mutationKey: listMutationKeys.clearDone,
+    mutationFn: clearDoneFn,
     onSettled: invalidate,
   });
 }

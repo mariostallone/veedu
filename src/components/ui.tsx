@@ -208,7 +208,8 @@ export function Button({
       onPress={onPress}
       disabled={disabled || loading}
       accessibilityRole="button"
-      accessibilityState={{ disabled: disabled || loading }}
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: disabled || loading, busy: !!loading }}
       style={({ pressed }) => [
         styles.button,
         { backgroundColor: bg, opacity: disabled ? 0.5 : pressed ? 0.8 : 1 },
@@ -226,6 +227,7 @@ export function Field({ label, error, style, ...input }: TextInputProps & { labe
       {label ? <Text style={[type.caption, { color: c.textMuted, fontWeight: '600' }]}>{label}</Text> : null}
       <TextInput
         placeholderTextColor={c.textMuted}
+        accessibilityLabel={input.accessibilityLabel ?? label ?? input.placeholder}
         {...input}
         style={[
           styles.input,
@@ -241,6 +243,8 @@ export function Field({ label, error, style, ...input }: TextInputProps & { labe
 export function Avatar({ name, color, size = 22 }: { name: string; color: string; size?: number }) {
   return (
     <View
+      accessible
+      accessibilityRole="image"
       accessibilityLabel={name}
       style={{
         width: size,
@@ -250,7 +254,7 @@ export function Avatar({ name, color, size = 22 }: { name: string; color: string
         alignItems: 'center',
         justifyContent: 'center',
       }}>
-      <Text style={{ color: '#FFFFFF', fontSize: size * 0.45, fontWeight: '700' }}>{initials(name)}</Text>
+      <Text allowFontScaling={false} style={{ color: '#FFFFFF', fontSize: size * 0.45, fontWeight: '700' }}>{initials(name)}</Text>
     </View>
   );
 }
@@ -268,7 +272,11 @@ export function Checkbox({ checked, onChange, label }: { checked: boolean; onCha
         styles.checkbox,
         { borderColor: checked ? c.accent : c.border, backgroundColor: checked ? c.accent : 'transparent' },
       ]}>
-      {checked ? <Text style={{ color: c.onAccent, fontWeight: '800', fontSize: 13 }}>✓</Text> : null}
+      {checked ? (
+        <Text allowFontScaling={false} style={{ color: c.onAccent, fontWeight: '800', fontSize: 13 }}>
+          ✓
+        </Text>
+      ) : null}
     </Pressable>
   );
 }
@@ -289,15 +297,19 @@ export function Stepper({
       disabled={delta < 0 && value <= 0}
       accessibilityRole="button"
       accessibilityLabel={`${delta > 0 ? 'Add one' : 'Remove one'} ${label}`}
-      hitSlop={6}
+      hitSlop={5}
       style={({ pressed }) => [styles.stepBtn, { backgroundColor: c.accentSoft, opacity: pressed ? 0.6 : 1 }]}>
-      <Text style={{ color: c.accent, fontWeight: '800', fontSize: 16 }}>{text}</Text>
+      <Text allowFontScaling={false} style={{ color: c.accent, fontWeight: '800', fontSize: 16 }}>
+        {text}
+      </Text>
     </Pressable>
   );
   return (
     <View style={[styles.stepper, { borderColor: c.border }]}>
       {btn(-1, '−')}
-      <Text style={{ minWidth: 30, textAlign: 'center', fontWeight: '700', color: c.text, fontVariant: ['tabular-nums'] }}>
+      <Text
+        accessibilityLabel={`${label}: ${value}`}
+        style={{ minWidth: 30, textAlign: 'center', fontWeight: '700', color: c.text, fontVariant: ['tabular-nums'] }}>
         {Number.isInteger(value) ? value : value.toFixed(1)}
       </Text>
       {btn(1, '+')}
@@ -325,6 +337,7 @@ export function Segmented<T extends string>({
             key={o.value}
             onPress={() => onChange(o.value)}
             accessibilityRole="tab"
+            accessibilityLabel={o.label}
             accessibilityState={{ selected: on }}
             style={[styles.segment, on && { backgroundColor: c.card }]}>
             <Text style={{ fontSize: 13, fontWeight: '600', color: on ? c.text : c.textMuted }}>{o.label}</Text>
@@ -355,6 +368,7 @@ export function ChoiceChips({
             key={o}
             onPress={() => onChange(on ? null : o)}
             accessibilityRole="button"
+            accessibilityLabel={o}
             accessibilityState={{ selected: on }}
             style={[
               styles.choice,
@@ -373,7 +387,10 @@ export function ProgressBar({ value, danger }: { value: number; danger?: boolean
   const c = useColors();
   const pct = Math.max(0, Math.min(1, value));
   return (
-    <View style={{ height: 5, borderRadius: 3, backgroundColor: c.border, overflow: 'hidden' }}>
+    <View
+      accessibilityRole="progressbar"
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(pct * 100) }}
+      style={{ height: 5, borderRadius: 3, backgroundColor: c.border, overflow: 'hidden' }}>
       <View style={{ width: `${pct * 100}%`, height: '100%', backgroundColor: danger ? c.danger : c.accent }} />
     </View>
   );
@@ -396,7 +413,11 @@ export function EmptyState({ title, message, action }: { title: string; message?
 export function Loading() {
   const c = useColors();
   return (
-    <View style={[styles.center, { backgroundColor: c.background }]}>
+    <View
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityLabel="Loading"
+      style={[styles.center, { backgroundColor: c.background }]}>
       <ActivityIndicator color={c.accent} />
     </View>
   );
@@ -407,7 +428,7 @@ export function ErrorNote({ error }: { error: unknown }) {
   if (!error) return null;
   const message = error instanceof Error ? error.message : String(error);
   return (
-    <View style={[styles.errorBox, { backgroundColor: c.dangerSoft }]}>
+    <View accessibilityRole="alert" style={[styles.errorBox, { backgroundColor: c.dangerSoft }]}>
       <Text style={[type.caption, { color: c.danger }]}>{message}</Text>
     </View>
   );
@@ -418,16 +439,23 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'flex-end', gap: space.sm, paddingBottom: space.xs },
   card: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.lg, paddingHorizontal: space.md },
   sectionLabel: { flexDirection: 'row', alignItems: 'center', paddingTop: space.sm, paddingHorizontal: 2 },
-  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md },
+  row: { flexDirection: 'row', alignItems: 'center', gap: space.md, paddingVertical: space.md, minHeight: 44 },
   chip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill },
   button: { minHeight: 48, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', paddingHorizontal: space.lg },
   input: { minHeight: 48, borderWidth: 1, borderRadius: radius.md, paddingHorizontal: space.md, fontSize: 16 },
   checkbox: { width: 24, height: 24, borderRadius: 7, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   stepper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 10, overflow: 'hidden' },
-  stepBtn: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  stepBtn: { width: 34, minHeight: 34, alignItems: 'center', justifyContent: 'center' },
   segmented: { flexDirection: 'row', borderRadius: 10, padding: 3, gap: 3 },
-  segment: { flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 8 },
-  choice: { borderWidth: 1, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
+  segment: { flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingVertical: 7, borderRadius: 8 },
+  choice: {
+    minHeight: 44,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
   empty: { alignItems: 'center', gap: space.sm, paddingVertical: space.xxl, paddingHorizontal: space.lg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   errorBox: { borderRadius: radius.md, padding: space.md },

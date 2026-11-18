@@ -8,12 +8,11 @@
     "scheme": "veedu",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon",
       "bundleIdentifier": "app.veedu.household"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E3F2EB",
+        "backgroundColor": "#0E7A5C",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -32,7 +31,7 @@
         {
           "backgroundColor": "#0E7A5C",
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "imageWidth": 140
         }
       ]
     ],

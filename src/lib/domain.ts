@@ -652,3 +652,21 @@ export function timeAgo(atMs: number, nowMs: number): string {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
+
+// --- Offline (M8) ---
+
+/** Cache key for the persisted query cache; changes with the app version so old caches are dropped. */
+export function cacheBuster(appVersion: string | null | undefined): string {
+  return `veedu-cache-v${appVersion || '0'}`;
+}
+
+/** Exponential retry delay in ms for a failed request: 1s, 2s, 4s ... capped at 30s. */
+export function retryDelay(attempt: number): number {
+  const n = Number.isFinite(attempt) ? Math.max(0, Math.floor(attempt)) : 0;
+  return Math.min(1000 * 2 ** n, 30_000);
+}
+
+/** True when the device can reach the network, given NetInfo's (possibly unknown) flags. */
+export function isReachable(state: { isConnected: boolean | null; isInternetReachable?: boolean | null }): boolean {
+  return state.isConnected !== false && state.isInternetReachable !== false;
+}

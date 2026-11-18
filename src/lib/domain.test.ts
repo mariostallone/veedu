@@ -4,6 +4,9 @@ import { test } from 'node:test';
 
 import {
   addDays,
+  cacheBuster,
+  isReachable,
+  retryDelay,
   daysBetween,
   daysToGo,
   DEFAULT_STORES,
@@ -455,4 +458,25 @@ test('timeAgo', () => {
   assert.equal(timeAgo(now - 5 * 60_000, now), '5m ago');
   assert.equal(timeAgo(now - 3 * 3_600_000, now), '3h ago');
   assert.equal(timeAgo(now - 50 * 3_600_000, now), '2d ago');
+});
+
+test('cacheBuster changes with the app version', () => {
+  assert.equal(cacheBuster('1.0.0'), 'veedu-cache-v1.0.0');
+  assert.notEqual(cacheBuster('1.0.0'), cacheBuster('1.0.1'));
+  assert.equal(cacheBuster(undefined), 'veedu-cache-v0');
+});
+
+test('retryDelay backs off exponentially and caps', () => {
+  assert.equal(retryDelay(0), 1000);
+  assert.equal(retryDelay(1), 2000);
+  assert.equal(retryDelay(3), 8000);
+  assert.equal(retryDelay(10), 30_000);
+  assert.equal(retryDelay(-2), 1000);
+});
+
+test('isReachable treats unknown as online', () => {
+  assert.equal(isReachable({ isConnected: true, isInternetReachable: true }), true);
+  assert.equal(isReachable({ isConnected: true, isInternetReachable: null }), true);
+  assert.equal(isReachable({ isConnected: false, isInternetReachable: false }), false);
+  assert.equal(isReachable({ isConnected: true, isInternetReachable: false }), false);
 });
