@@ -143,3 +143,62 @@ export function initials(name: string): string {
       .join('') || '?'
   );
 }
+
+// --- Trips (M4) ---
+
+/** True for a real calendar date written as YYYY-MM-DD. */
+export function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(Date.UTC(+value.slice(0, 4), +value.slice(5, 7) - 1, +value.slice(8, 10)));
+  return d.toISOString().slice(0, 10) === value;
+}
+
+/** Parses a typed amount ("1,200", "45.5"); empty gives null, junk or negatives give NaN. */
+export function parseAmount(text: string): number | null {
+  const t = text.trim().replace(/,/g, '');
+  if (!t) return null;
+  if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) return NaN;
+  return Number(t);
+}
+
+/** Whole numbers without decimals, otherwise two decimals: 1200 -> "1,200", 4.5 -> "4.50". */
+export function formatMoney(amount: number): string {
+  const whole = Number.isInteger(amount);
+  const [int, frac] = Math.abs(amount).toFixed(whole ? 0 : 2).split('.');
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${amount < 0 ? '-' : ''}${grouped}${frac ? `.${frac}` : ''}`;
+}
+
+/** "5 days to go", "Tomorrow", "Today", "Started 3 days ago" for a trip start date. */
+export function daysToGo(startsOn: IsoDate | null, today: IsoDate): string | null {
+  if (!startsOn) return null;
+  const d = daysBetween(today, startsOn);
+  if (d === 0) return 'Departs today';
+  if (d === 1) return 'Departs tomorrow';
+  if (d > 1) return `${d} days to go`;
+  return d === -1 ? 'Started yesterday' : `Started ${-d} days ago`;
+}
+
+/** The copy of a trip's items used as a template: same content, nothing checked off. */
+export function templateItems<
+  T extends {
+    text: string;
+    qty: number;
+    note: string | null;
+    category: string | null;
+    group_name: string | null;
+    owner_id: string | null;
+    cost: number | null;
+  },
+>(items: readonly T[]) {
+  return items.map((i) => ({
+    text: i.text,
+    qty: i.qty,
+    note: i.note,
+    category: i.category as T['category'],
+    group_name: i.group_name,
+    owner_id: i.owner_id,
+    cost: i.cost,
+    done: false,
+  }));
+}

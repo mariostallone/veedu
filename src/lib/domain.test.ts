@@ -5,12 +5,17 @@ import { test } from 'node:test';
 import {
   addDays,
   daysBetween,
+  daysToGo,
   expiryStatus,
   formatQty,
   groupBy,
+  formatMoney,
   initials,
+  isValidIsoDate,
+  parseAmount,
   relativeDay,
   restockQty,
+  templateItems,
   todoBucket,
   tripProgress,
 } from './domain.ts';
@@ -107,4 +112,42 @@ test('initials', () => {
   assert.equal(initials('Priya'), 'P');
   assert.equal(initials('  amma appa extra '), 'AA');
   assert.equal(initials(''), '?');
+});
+
+test('isValidIsoDate rejects impossible dates', () => {
+  assert.equal(isValidIsoDate('2027-02-28'), true);
+  assert.equal(isValidIsoDate('2027-02-30'), false);
+  assert.equal(isValidIsoDate('2027-2-3'), false);
+  assert.equal(isValidIsoDate('abc'), false);
+});
+
+test('parseAmount handles commas, blanks and junk', () => {
+  assert.equal(parseAmount(''), null);
+  assert.equal(parseAmount('1,200'), 1200);
+  assert.equal(parseAmount('45.5'), 45.5);
+  assert.ok(Number.isNaN(parseAmount('-3')));
+  assert.ok(Number.isNaN(parseAmount('12a')));
+});
+
+test('formatMoney groups thousands', () => {
+  assert.equal(formatMoney(1200), '1,200');
+  assert.equal(formatMoney(4.5), '4.50');
+  assert.equal(formatMoney(0), '0');
+});
+
+test('daysToGo describes the countdown', () => {
+  assert.equal(daysToGo(null, '2026-11-18'), null);
+  assert.equal(daysToGo('2026-11-18', '2026-11-18'), 'Departs today');
+  assert.equal(daysToGo('2026-11-19', '2026-11-18'), 'Departs tomorrow');
+  assert.equal(daysToGo('2026-12-18', '2026-11-18'), '30 days to go');
+  assert.equal(daysToGo('2026-11-10', '2026-11-18'), 'Started 8 days ago');
+});
+
+test('templateItems copies content but unchecks everything', () => {
+  const out = templateItems([
+    { text: 'Saree', qty: 2, note: 'silk', category: 'gifts', group_name: 'Amma', owner_id: 'u1', cost: 50, done: true },
+  ] as never[]);
+  assert.deepEqual(out, [
+    { text: 'Saree', qty: 2, note: 'silk', category: 'gifts', group_name: 'Amma', owner_id: 'u1', cost: 50, done: false },
+  ]);
 });
