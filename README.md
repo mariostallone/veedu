@@ -1,56 +1,73 @@
-# Welcome to your Expo app 👋
+# Veedu · வீடு
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A shared household app for two people: **pantry inventory**, **shopping list**, **trip lists** (gifts for the India trip) and **to-dos**, synced live between both phones.
 
-## Get started
+Built with Expo (iOS, Android, web) and Supabase (auth, Postgres, realtime).
 
-1. Install dependencies
+## How it fits together
 
-   ```bash
-   npm install
-   ```
+- Each person signs in with an emailed one-time code, then creates a household or joins one with an invite code.
+- **Pantry and shopping are linked in the database** (`supabase/migrations`):
+  - when a pantry item's count drops below its *keep at least* level, it is added to the shopping list with the amount to buy;
+  - checking a linked shopping item off adds that amount back to the pantry (unchecking undoes it);
+  - a shopping item typed by hand is linked to the pantry item with the same name.
+- Repeating to-dos create their next occurrence when checked off.
+- Every change is pushed to the other phone through Supabase Realtime.
 
-2. Start the app
+## Set up
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In the SQL editor, run `supabase/migrations/20261118000000_init.sql` (or `supabase db push` with the Supabase CLI).
+3. **Auth → Email templates → Magic link**: include the code so people can type it in, e.g. `Your Veedu code is {{ .Token }}`.
+4. Copy `.env.example` to `.env` and fill in the project URL and anon key (Project Settings → API).
+5. Install and run:
 
 ```bash
-npm run reset-project
+npm install
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+```bash
+npx expo start
+```
 
-### Other setup steps
+Open it in Expo Go, an iOS simulator, an Android emulator, or press `w` for the web.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+## Checks
 
-## Learn more
+```bash
+npm run typecheck
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npx expo lint
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+```bash
+npm test
+```
 
-## Join the community
+```bash
+npm run test:db
+```
 
-Join our community of developers creating universal apps.
+`test:db` spins up a throwaway local Postgres (needs `initdb`/`pg_ctl`/`psql`), applies the migrations on top of a small stub of Supabase's `auth` schema, and runs the behaviour tests in `supabase/tests`.
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+## Layout
+
+```
+src/app/                 routes (Expo Router)
+  sign-in.tsx            email code sign-in
+  onboarding.tsx         create or join a household
+  (app)/                 everything behind sign-in
+    (tabs)/              Home, Pantry, Shop, Trips, To-do
+    settings.tsx         invite code, members, names, sign out
+src/features/<feature>/  data hooks (api.ts) and feature components
+src/components/ui.tsx    shared UI building blocks
+src/lib/                 Supabase client, session, realtime sync, pure domain logic
+supabase/migrations/     schema, RLS policies, triggers, RPCs
+supabase/tests/          database behaviour tests
+```
+
+## Roadmap
+
+Work is split into milestones tracked as GitHub issues and milestones.
