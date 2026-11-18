@@ -32,6 +32,19 @@ npx expo start
 
 Open it in Expo Go, an iOS simulator, an Android emulator, or press `w` for the web.
 
+## Scanning
+
+Photo scanning (pantry labels, shopping notes) runs through the `scan` Edge Function in `supabase/functions/scan`, which sends the photo to the Claude API and returns validated JSON. The API key stays on the server and only signed-in household members can call it.
+
+```bash
+supabase functions deploy scan
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Apply the new migration too (`supabase db push`): it adds `pantry_items.barcode`. Photos over 5 MB are rejected. Without the function deployed, the Scan buttons show an error and everything else keeps working.
+
+Barcode scanning uses the phone camera (not available in the browser, where you can type the number instead) and looks products up on [Open Food Facts](https://world.openfoodfacts.org) directly from the app. Saving an item with a barcode remembers it, so scanning that code again opens the item. Every scan ends in a confirm step; nothing is saved silently.
+
 ## Checks
 
 ```bash

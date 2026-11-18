@@ -34,6 +34,20 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "Veedu uses the camera to photograph product labels and shopping notes so you do not have to type them.",
+          "photosPermission": "Veedu reads photos you choose of product labels and shopping notes so you do not have to type them."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Veedu uses the camera to scan barcodes and photograph product labels and shopping notes.",
+          "recordAudioAndroid": false
+        }
       ]
     ],
     "experiments": {

@@ -27,6 +27,8 @@ export type PantryItem = {
   store: string | null;
   expires_on: IsoDate | null;
   notes: string | null;
+  /** Remembered product barcode (EAN/UPC digits), unique per household. */
+  barcode: string | null;
   created_by: string | null;
   created_at: string;
   updated_by: string | null;
@@ -96,4 +98,16 @@ export type NewListItem = Pick<ListItem, 'list_id' | 'text'> &
   >;
 
 export type NewPantryItem = Pick<PantryItem, 'name'> &
-  Partial<Pick<PantryItem, 'category' | 'unit' | 'qty' | 'keep_min' | 'store' | 'expires_on' | 'notes'>>;
+  Partial<Pick<PantryItem, 'category' | 'unit' | 'qty' | 'keep_min' | 'store' | 'expires_on' | 'notes' | 'barcode'>>;
+
+/** What the `scan` Edge Function returns for a product label photo. */
+export type LabelScan = {
+  name: string;
+  size: number | null;
+  unit: string | null;
+  expires_on: IsoDate | null;
+  category: string | null;
+};
+
+/** One line found on a photographed shopping note. */
+export type NoteScanItem = { text: string; qty: number; store_guess: string | null };
