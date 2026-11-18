@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,6 +30,8 @@ export function Screen({
   children,
   scroll = true,
   edges = ['top'],
+  refreshing,
+  onRefresh,
 }: {
   title?: string;
   subtitle?: string;
@@ -36,6 +39,9 @@ export function Screen({
   children: ReactNode;
   scroll?: boolean;
   edges?: ('top' | 'bottom')[];
+  /** Pull to refresh (scrolling screens only): pass both to enable it. */
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }) {
   const c = useColors();
   const header = title ? (
@@ -55,6 +61,7 @@ export function Screen({
         <ScrollView
           contentContainerStyle={styles.content}
           keyboardShouldPersistTaps="handled"
+          refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} /> : undefined}
           contentInsetAdjustmentBehavior="automatic">
           {header}
           {children}

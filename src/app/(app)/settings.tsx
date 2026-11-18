@@ -3,7 +3,14 @@ import { useState } from 'react';
 import { Pressable, Share, Text, View } from 'react-native';
 
 import { Avatar, Button, Caption, Card, ErrorNote, Field, Row, Screen, SectionLabel } from '@/components/ui';
-import { signOut, useMembers, useRenameHousehold, useUpdateMyName } from '@/features/household/api';
+import {
+  signOut,
+  useLeaveHousehold,
+  useMembers,
+  useRegenerateInviteCode,
+  useRenameHousehold,
+  useUpdateMyName,
+} from '@/features/household/api';
 import { useHousehold } from '@/lib/session';
 import { space, useColors } from '@/theme';
 
@@ -15,7 +22,10 @@ export default function Settings() {
   const updateName = useUpdateMyName();
   const [householdName, setHouseholdName] = useState(household.name);
   const [myName, setMyName] = useState(me.display_name);
+  const regenerate = useRegenerateInviteCode();
+  const leave = useLeaveHousehold();
   const [copied, setCopied] = useState(false);
+  const [confirming, setConfirming] = useState<'regenerate' | 'leave' | null>(null);
 
   async function copyCode() {
     await Clipboard.setStringAsync(household.invite_code);
@@ -40,6 +50,29 @@ export default function Settings() {
         </Pressable>
         <Caption>{copied ? 'Copied' : 'Tap the code to copy it'}</Caption>
         <Button label="Share invite" onPress={shareCode} style={{ alignSelf: 'stretch' }} />
+        {confirming === 'regenerate' ? (
+          <View style={{ alignSelf: 'stretch', gap: space.sm }}>
+            <Caption style={{ textAlign: 'center' }}>The current code will stop working. Anyone you already gave it to will need the new one.</Caption>
+            <ErrorNote error={regenerate.error} />
+            <Button
+              label="Yes, make a new code"
+              variant="secondary"
+              loading={regenerate.isPending}
+              onPress={() => regenerate.mutate(undefined, { onSuccess: () => setConfirming(null) })}
+            />
+            <Button label="Cancel" variant="secondary" onPress={() => setConfirming(null)} />
+          </View>
+        ) : (
+          <Button
+            label="Make a new code"
+            variant="secondary"
+            onPress={() => {
+              regenerate.reset();
+              setConfirming('regenerate');
+            }}
+            style={{ alignSelf: 'stretch' }}
+          />
+        )}
       </Card>
 
       <SectionLabel>Members</SectionLabel>
@@ -75,8 +108,29 @@ export default function Settings() {
         />
       </Card>
 
-      <View style={{ paddingTop: space.lg }}>
-        <Button label="Sign out" variant="danger" onPress={signOut} />
+      <View style={{ paddingTop: space.lg, gap: space.sm }}>
+        {confirming === 'leave' ? (
+          <Card style={{ paddingVertical: space.lg, gap: space.md }}>
+            <Caption>
+              {(members.data?.length ?? 0) > 1
+                ? 'You will lose access to this household’s pantry and lists. Your partner keeps everything.'
+                : 'You are the only member, so leaving deletes this household and everything in it.'}
+            </Caption>
+            <ErrorNote error={leave.error} />
+            <Button label="Yes, leave household" variant="danger" loading={leave.isPending} onPress={() => leave.mutate()} />
+            <Button label="Cancel" variant="secondary" onPress={() => setConfirming(null)} />
+          </Card>
+        ) : (
+          <Button
+            label="Leave household"
+            variant="danger"
+            onPress={() => {
+              leave.reset();
+              setConfirming('leave');
+            }}
+          />
+        )}
+        <Button label="Sign out" variant="secondary" onPress={signOut} />
       </View>
     </Screen>
   );

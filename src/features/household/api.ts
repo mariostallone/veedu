@@ -84,3 +84,26 @@ export function useUpdateMyName() {
 export async function signOut() {
   await supabase.auth.signOut();
 }
+
+export function useRegenerateInviteCode() {
+  const { refreshHousehold } = useSession();
+  return useMutation({
+    mutationFn: async () => unwrap(await supabase.rpc('regenerate_invite_code')) as Household,
+    onSuccess: refreshHousehold,
+  });
+}
+
+/** Leaves the household (deleting it if you were the last member); the root guard then shows onboarding. */
+export function useLeaveHousehold() {
+  const { refreshHousehold } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      unwrap(await supabase.rpc('leave_household'));
+    },
+    onSuccess: async () => {
+      await refreshHousehold();
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== 'household' });
+    },
+  });
+}
