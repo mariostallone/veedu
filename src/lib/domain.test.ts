@@ -5,12 +5,18 @@ import { test } from 'node:test';
 import {
   addDays,
   daysBetween,
+  expiryLabel,
   expiryStatus,
+  filterPantry,
   formatQty,
   groupBy,
   initials,
+  isValidIsoDate,
+  mergeSuggestions,
+  parseQty,
   relativeDay,
   restockQty,
+  stockLevel,
   todoBucket,
   tripProgress,
 } from './domain.ts';
@@ -107,4 +113,54 @@ test('initials', () => {
   assert.equal(initials('Priya'), 'P');
   assert.equal(initials('  amma appa extra '), 'AA');
   assert.equal(initials(''), '?');
+});
+
+test('mergeSuggestions puts existing values first and skips case-insensitive duplicates', () => {
+  assert.deepEqual(mergeSuggestions(['Spices', ' pulses ', null, 'Spices'], ['spices', 'Snacks']), [
+    'pulses',
+    'Spices',
+    'Snacks',
+  ]);
+});
+
+test('filterPantry searches name, category and store and narrows by category', () => {
+  const items = [
+    { name: 'Basmati rice', category: 'Grains & pulses', store: 'Patel Brothers' },
+    { name: 'Haldi', category: 'Spices', store: null },
+    { name: 'Soap', category: '', store: null },
+  ];
+  assert.equal(filterPantry(items, '').length, 3);
+  assert.deepEqual(filterPantry(items, ' RICE ').map((i) => i.name), ['Basmati rice']);
+  assert.deepEqual(filterPantry(items, 'patel').map((i) => i.name), ['Basmati rice']);
+  assert.deepEqual(filterPantry(items, '', 'Spices').map((i) => i.name), ['Haldi']);
+  assert.deepEqual(filterPantry(items, '', 'Other').map((i) => i.name), ['Soap']);
+  assert.deepEqual(filterPantry(items, 'rice', 'Spices'), []);
+});
+
+test('stockLevel', () => {
+  assert.equal(stockLevel(1, 2), 0.5);
+  assert.equal(stockLevel(3, 2), 1);
+  assert.equal(stockLevel(0, 2), 0);
+  assert.equal(stockLevel(2, 0), 1);
+  assert.equal(stockLevel(0, 0), 0);
+});
+
+test('isValidIsoDate and parseQty', () => {
+  assert.equal(isValidIsoDate('2026-11-18'), true);
+  assert.equal(isValidIsoDate('2026-02-30'), false);
+  assert.equal(isValidIsoDate('18-11-2026'), false);
+  assert.equal(parseQty('2'), 2);
+  assert.equal(parseQty('1,5'), 1.5);
+  assert.equal(parseQty(''), 0);
+  assert.equal(parseQty('-1'), null);
+  assert.equal(parseQty('abc'), null);
+});
+
+test('expiryLabel', () => {
+  assert.equal(expiryLabel({ kind: 'none' }), null);
+  assert.equal(expiryLabel({ kind: 'ok', days: 90 }), null);
+  assert.equal(expiryLabel({ kind: 'expired', days: -1 }), 'Expired yesterday');
+  assert.equal(expiryLabel({ kind: 'expired', days: -5 }), 'Expired 5d ago');
+  assert.equal(expiryLabel({ kind: 'soon', days: 0 }), 'Expires today');
+  assert.equal(expiryLabel({ kind: 'soon', days: 12 }), 'Expires in 12d');
 });

@@ -143,3 +143,89 @@ export function initials(name: string): string {
       .join('') || '?'
   );
 }
+
+// --- Pantry (M1) ---
+
+export const DEFAULT_PANTRY_CATEGORIES = [
+  'Grains & pulses',
+  'Spices',
+  'Oils & ghee',
+  'Snacks',
+  'Household',
+  'Toiletries',
+  'Other',
+] as const;
+
+export const DEFAULT_PANTRY_UNITS = ['pack', 'bag', 'box', 'bottle', 'roll', 'kg', 'g'] as const;
+
+export const DEFAULT_STORES = ['Supermarket', 'Local kirana', 'Online'] as const;
+
+export type QuickAddPantry = { name: string; category: string; unit: string; keep_min: number };
+
+export const QUICK_ADD_PANTRY: readonly QuickAddPantry[] = [
+  { name: 'Basmati rice', category: 'Grains & pulses', unit: 'bag', keep_min: 1 },
+  { name: 'Toor dal', category: 'Grains & pulses', unit: 'pack', keep_min: 1 },
+  { name: 'Atta', category: 'Grains & pulses', unit: 'bag', keep_min: 1 },
+  { name: 'Haldi', category: 'Spices', unit: 'pack', keep_min: 1 },
+  { name: 'Garam masala', category: 'Spices', unit: 'pack', keep_min: 1 },
+  { name: 'Ghee', category: 'Oils & ghee', unit: 'bottle', keep_min: 1 },
+  { name: 'Toilet paper', category: 'Household', unit: 'roll', keep_min: 4 },
+];
+
+/** Existing values first (sorted, de-duplicated ignoring case), then any defaults not already present. */
+export function mergeSuggestions(existing: readonly (string | null | undefined)[], defaults: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (v: string | null | undefined) => {
+    const t = v?.trim();
+    if (!t || seen.has(t.toLowerCase())) return;
+    seen.add(t.toLowerCase());
+    out.push(t);
+  };
+  [...existing].sort((a, b) => (a ?? '').localeCompare(b ?? '')).forEach(add);
+  defaults.forEach(add);
+  return out;
+}
+
+/** Case-insensitive search on name, category and store, optionally narrowed to one category. */
+export function filterPantry<T extends { name: string; category: string; store: string | null }>(
+  items: readonly T[],
+  query: string,
+  category: string | null = null,
+): T[] {
+  const q = query.trim().toLowerCase();
+  return items.filter((it) => {
+    if (category && (it.category.trim() || 'Other') !== category) return false;
+    if (!q) return true;
+    return [it.name, it.category, it.store ?? ''].some((s) => s.toLowerCase().includes(q));
+  });
+}
+
+/** Fill level for the progress bar: qty relative to keep_min (full at or above it). */
+export function stockLevel(qty: number, keepMin: number): number {
+  if (keepMin <= 0) return qty > 0 ? 1 : 0;
+  return Math.max(0, Math.min(1, qty / keepMin));
+}
+
+/** True for a real calendar date written as YYYY-MM-DD. */
+export function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(Date.UTC(+value.slice(0, 4), +value.slice(5, 7) - 1, +value.slice(8, 10)));
+  return d.toISOString().slice(0, 10) === value;
+}
+
+/** Parses a non-negative number typed by a person ("2", "1.5", "1,5"); null when invalid. Blank is 0. */
+export function parseQty(text: string): number | null {
+  const t = text.trim().replace(',', '.');
+  if (!t) return 0;
+  if (!/^\d*\.?\d+$|^\d+\.$/.test(t)) return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/** Short chip text for an expiry status, or null when nothing needs flagging. */
+export function expiryLabel(status: ExpiryStatus): string | null {
+  if (status.kind === 'expired') return status.days === -1 ? 'Expired yesterday' : `Expired ${-status.days}d ago`;
+  if (status.kind === 'soon') return status.days === 0 ? 'Expires today' : `Expires in ${status.days}d`;
+  return null;
+}
