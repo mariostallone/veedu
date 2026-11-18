@@ -292,3 +292,100 @@ export function groupShopping<T extends { done: boolean; group_name: string | nu
     inCart: items.filter((i) => i.done),
   };
 }
+
+// --- To-dos (M3) ---
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** Day of week for an ISO date: 0 = Sunday … 6 = Saturday. */
+export function weekdayOf(date: IsoDate): number {
+  return new Date(Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10))).getUTCDay();
+}
+
+export type RepeatOption = { days: number | null; label: string };
+
+/** Repeat choices offered when editing a to-do. Monthly is a fixed 30 days. */
+export const REPEAT_OPTIONS: readonly RepeatOption[] = [
+  { days: null, label: 'Never' },
+  { days: 1, label: 'Daily' },
+  { days: 7, label: 'Weekly' },
+  { days: 14, label: 'Every 2 weeks' },
+  { days: 30, label: 'Monthly' },
+];
+
+/**
+ * Label for the repeat indicator on a row: "Every Sunday" (weekly, when the due date is known),
+ * "Every 2 weeks", "Every month", "Every 3 days". Null when the task does not repeat.
+ */
+export function repeatLabel(days: number | null | undefined, dueOn?: IsoDate | null): string | null {
+  if (!days || days < 1) return null;
+  if (days === 1) return 'Every day';
+  if (days === 7) return dueOn ? `Every ${WEEKDAYS[weekdayOf(dueOn)]}` : 'Every week';
+  if (days % 7 === 0) return `Every ${days / 7} weeks`;
+  if (days === 30) return 'Every month';
+  return `Every ${days} days`;
+}
+
+export type DueQuickPick = 'today' | 'tomorrow' | 'weekend' | 'next_week';
+
+/** Dates for the due-date quick picks: weekend = the coming Saturday (today if it is the weekend), next week = next Monday. */
+export function quickPickDate(pick: DueQuickPick, today: IsoDate): IsoDate {
+  const dow = weekdayOf(today);
+  switch (pick) {
+    case 'today':
+      return today;
+    case 'tomorrow':
+      return addDays(today, 1);
+    case 'weekend':
+      return dow === 0 ? today : addDays(today, (6 - dow + 7) % 7);
+    case 'next_week':
+      return addDays(today, ((1 - dow + 7) % 7) || 7);
+  }
+}
+
+/** "November 2026" for a 0-based month. */
+export function monthTitle(year: number, month: number): string {
+  return `${MONTH_NAMES[month]} ${year}`;
+}
+
+/** Shifts a year/0-based month pair by whole months. */
+export function shiftMonth(year: number, month: number, delta: number): { year: number; month: number } {
+  const index = year * 12 + month + delta;
+  return { year: Math.floor(index / 12), month: ((index % 12) + 12) % 12 };
+}
+
+/** Weeks (Monday first) of a month for a calendar; days outside the month are null. */
+export function monthGrid(year: number, month: number): (IsoDate | null)[][] {
+  const first = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+  const lead = (weekdayOf(first) + 6) % 7;
+  const count = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const cells: (IsoDate | null)[] = Array.from({ length: lead }, () => null);
+  for (let d = 0; d < count; d++) cells.push(addDays(first, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+  const weeks: (IsoDate | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+export type TodoFilter = 'mine' | 'partner' | 'everyone';
+
+/** Applies the Mine / partner / Everyone filter. `partnerIds` are the other members' user ids. */
+export function filterTodosByOwner<T extends { owner_id: string | null }>(
+  items: readonly T[],
+  filter: TodoFilter,
+  me: string,
+  partnerIds: readonly string[],
+): T[] {
+  if (filter === 'everyone') return [...items];
+  if (filter === 'mine') return items.filter((i) => i.owner_id === me);
+  return items.filter((i) => i.owner_id !== null && partnerIds.includes(i.owner_id));
+}
+
+/** Most recently completed items first, capped at `limit`. */
+export function recentlyDone<T extends { done_at: string | null }>(items: readonly T[], limit = 10): T[] {
+  return [...items].sort((a, b) => (b.done_at ?? '').localeCompare(a.done_at ?? '')).slice(0, limit);
+}
