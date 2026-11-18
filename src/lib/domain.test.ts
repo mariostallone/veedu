@@ -456,3 +456,25 @@ test('timeAgo', () => {
   assert.equal(timeAgo(now - 3 * 3_600_000, now), '3h ago');
   assert.equal(timeAgo(now - 50 * 3_600_000, now), '2d ago');
 });
+
+// --- Notifications (M7) ---
+
+test('notificationRoute only accepts known tabs', async () => {
+  const { notificationRoute } = await import('./domain.ts');
+  assert.equal(notificationRoute({ url: '/shop' }), '/shop');
+  assert.equal(notificationRoute({ url: '/todo' }), '/todo');
+  assert.equal(notificationRoute({ url: '/settings' }), null);
+  assert.equal(notificationRoute({ url: 'https://evil.example' }), null);
+  assert.equal(notificationRoute(null), null);
+  assert.equal(notificationRoute('x'), null);
+});
+
+test('formatDigestHour and DIGEST_HOURS', async () => {
+  const { formatDigestHour, DIGEST_HOURS } = await import('./domain.ts');
+  assert.equal(formatDigestHour(0), '12:00 AM');
+  assert.equal(formatDigestHour(8), '8:00 AM');
+  assert.equal(formatDigestHour(12), '12:00 PM');
+  assert.equal(formatDigestHour(18), '6:00 PM');
+  assert.equal(DIGEST_HOURS[0], 5);
+  assert.equal(DIGEST_HOURS.at(-1), 22);
+});

@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 
+import { usePushSetup } from '@/features/notifications/usePushSetup';
 import { useRealtimeSync } from '@/lib/realtime';
 import { useHousehold } from '@/lib/session';
 
@@ -10,6 +11,7 @@ import { useHousehold } from '@/lib/session';
 export default function AppLayout() {
   const { household } = useHousehold();
   useRealtimeSync(household.id);
+  usePushSetup();
   return (
     <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

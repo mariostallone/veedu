@@ -652,3 +652,25 @@ export function timeAgo(atMs: number, nowMs: number): string {
   if (hours < 24) return `${hours}h ago`;
   return `${Math.floor(hours / 24)}d ago`;
 }
+
+// --- Notifications (M7) ---
+
+export type NotificationRoute = '/' | '/pantry' | '/shop' | '/trips' | '/todo';
+
+const NOTIFICATION_ROUTES: readonly NotificationRoute[] = ['/', '/pantry', '/shop', '/trips', '/todo'];
+
+/** Which tab a tapped notification opens, from its `data.url`; null when it names no known tab. */
+export function notificationRoute(data: unknown): NotificationRoute | null {
+  if (typeof data !== 'object' || data === null) return null;
+  const url = (data as { url?: unknown }).url;
+  return NOTIFICATION_ROUTES.find((r) => r === url) ?? null;
+}
+
+/** 0 -> "12:00 AM", 8 -> "8:00 AM", 18 -> "6:00 PM". */
+export function formatDigestHour(hour: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:00 ${hour < 12 ? 'AM' : 'PM'}`;
+}
+
+/** Hours offered for the daily digest, 5 AM to 10 PM. */
+export const DIGEST_HOURS: readonly number[] = Array.from({ length: 18 }, (_, i) => i + 5);

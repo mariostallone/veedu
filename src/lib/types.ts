@@ -97,3 +97,22 @@ export type NewListItem = Pick<ListItem, 'list_id' | 'text'> &
 
 export type NewPantryItem = Pick<PantryItem, 'name'> &
   Partial<Pick<PantryItem, 'category' | 'unit' | 'qty' | 'keep_min' | 'store' | 'expires_on' | 'notes'>>;
+
+export type NotificationPrefs = {
+  user_id: string;
+  household_id: string | null;
+  partner_activity: boolean;
+  daily_digest: boolean;
+  /** Local hour of the day, 0-23, in `timezone`. */
+  digest_hour: number;
+  timezone: string;
+};
+
+export type PushToken = {
+  id: string;
+  user_id: string;
+  token: string;
+  platform: 'ios' | 'android' | 'web';
+  household_id: string | null;
+  created_at: string;
+};
