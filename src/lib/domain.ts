@@ -670,3 +670,169 @@ export function retryDelay(attempt: number): number {
 export function isReachable(state: { isConnected: boolean | null; isInternetReachable?: boolean | null }): boolean {
   return state.isConnected !== false && state.isInternetReachable !== false;
 }
+
+// --- Scanning (M6) ---
+
+/** Digits only; 12-digit UPC-A becomes 13-digit EAN-13 so one product has one code. Null if not a usable barcode. */
+export function normaliseBarcode(raw: string): string | null {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 14) return null;
+  return digits.length === 12 ? `0${digits}` : digits;
+}
+
+/** The pantry item that remembers this barcode, if any. */
+export function findByBarcode<T extends { barcode: string | null }>(items: readonly T[], code: string): T | undefined {
+  const wanted = normaliseBarcode(code);
+  if (!wanted) return undefined;
+  return items.find((i) => i.barcode !== null && normaliseBarcode(i.barcode) === wanted);
+}
+
+/** Lower-case, letters and digits only, each word singularised crudely ("Onions" and "onion" match). */
+function matchKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w))
+    .join(' ');
+}
+
+/** The pantry item with the same name as a scanned text (ignoring case, punctuation and plurals). */
+export function matchPantryName<T extends { name: string }>(items: readonly T[], text: string): T | undefined {
+  const key = matchKey(text);
+  if (!key) return undefined;
+  return items.find((i) => matchKey(i.name) === key);
+}
+
+export type NoteRow<P> = {
+  text: string;
+  qty: number;
+  store: string | null;
+  /** Pantry item with the same name, so the list item links to it. */
+  pantry: P | null;
+  /** Already unchecked on the shopping list. */
+  duplicate: boolean;
+  /** Checked by default unless it is already on the list. */
+  selected: boolean;
+};
+
+/** Turns scanned note items into checklist rows, matched against pantry names and the open shopping list. */
+export function planNoteItems<P extends { name: string }>(
+  scanned: readonly { text: string; qty: number; store_guess: string | null }[],
+  pantry: readonly P[],
+  shopping: readonly { text: string; done: boolean }[],
+): NoteRow<P>[] {
+  return scanned.map((s) => {
+    const pantryItem = matchPantryName(pantry, s.text) ?? null;
+    const name = pantryItem?.name ?? s.text;
+    const duplicate = !!findDuplicateItem(shopping, name);
+    return { text: name, qty: s.qty, store: s.store_guess, pantry: pantryItem, duplicate, selected: !duplicate };
+  });
+}
+
+/** Fields of the pantry editor that a scan filled in; the editor marks them "read". */
+export type ReadField = 'name' | 'category' | 'unit' | 'qty' | 'expiry';
+
+export type EditorPrefill = {
+  name?: string;
+  category?: string;
+  unit?: string;
+  qty?: string;
+  expires?: string;
+  barcode?: string;
+  /** Comma-separated ReadField names. */
+  read?: string;
+};
+
+/** Which fields were read, from the editor's `read` route param. */
+export function parseReadFields(param: string | undefined): Set<string> {
+  return new Set((param ?? '').split(',').filter(Boolean));
+}
+
+/** Pantry category for a free-text hint, using only categories the pantry offers. */
+export function pickCategory(hint: string | null | undefined, known: readonly string[]): string | null {
+  const h = (hint ?? '').trim().toLowerCase();
+  if (!h) return null;
+  return known.find((k) => k.toLowerCase() === h) ?? null;
+}
+
+/** Route params for the pantry editor from a label scan. Only fields that were read are set. */
+export function labelToPrefill(
+  label: { name: string; size: number | null; unit: string | null; expires_on: string | null; category: string | null },
+  knownCategories: readonly string[],
+): EditorPrefill {
+  const read: ReadField[] = ['name'];
+  const out: EditorPrefill = { name: label.name };
+  const category = pickCategory(label.category, knownCategories);
+  if (category) {
+    out.category = category;
+    read.push('category');
+  }
+  if (label.unit) {
+    out.unit = label.unit;
+    read.push('unit');
+  }
+  if (label.size !== null) {
+    out.qty = String(label.size);
+    read.push('qty');
+  }
+  if (label.expires_on && isValidIsoDate(label.expires_on)) {
+    out.expires = label.expires_on;
+    read.push('expiry');
+  }
+  out.read = read.join(',');
+  return out;
+}
+
+export type ProductInfo = { name: string; size: number | null; unit: string | null; category: string | null };
+
+const CATEGORY_HINTS: readonly [string, RegExp][] = [
+  ['Spices', /spice|masala|seasoning|herb/],
+  ['Oils & ghee', /\boils?\b|ghee|butter/],
+  ['Grains & pulses', /rice|flour|atta|lentil|dal\b|pulse|cereal|grain|bean/],
+  ['Snacks', /snack|biscuit|cookie|chips|crisps|chocolate|candy|sweet/],
+  ['Toiletries', /soap|shampoo|toothpaste|hygiene|cosmetic/],
+  ['Household', /clean|detergent|laundry|household|paper/],
+];
+
+/** Reads an Open Food Facts v2 product response; null when the product is unknown. */
+export function parseOpenFoodFacts(json: unknown): ProductInfo | null {
+  if (typeof json !== 'object' || json === null) return null;
+  const root = json as { status?: unknown; product?: unknown };
+  if (root.status === 0 || typeof root.product !== 'object' || root.product === null) return null;
+  const p = root.product as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+  const name = str(p.product_name_en) || str(p.product_name) || str(p.generic_name);
+  if (!name) return null;
+  const qty = str(p.quantity).match(/(\d+(?:[.,]\d+)?)\s*(kg|g|ml|cl|l)\b/i);
+  const tags = Array.isArray(p.categories_tags) ? p.categories_tags.filter((t) => typeof t === 'string').join(' ') : '';
+  const haystack = `${tags} ${str(p.categories)}`.toLowerCase();
+  return {
+    name: name.slice(0, 80),
+    size: qty ? Number(qty[1].replace(',', '.')) : null,
+    unit: qty ? qty[2].toLowerCase() : null,
+    category: CATEGORY_HINTS.find(([, re]) => re.test(haystack))?.[0] ?? null,
+  };
+}
+
+/** Editor params for a barcode that is not in the pantry yet. */
+export function barcodeToPrefill(code: string, product: ProductInfo | null): EditorPrefill {
+  if (!product) return { barcode: code };
+  const read: ReadField[] = ['name'];
+  const out: EditorPrefill = { barcode: code, name: product.name };
+  if (product.category) {
+    out.category = product.category;
+    read.push('category');
+  }
+  if (product.unit) {
+    out.unit = product.unit;
+    read.push('unit');
+  }
+  if (product.size !== null) {
+    out.qty = String(product.size);
+    read.push('qty');
+  }
+  out.read = read.join(',');
+  return out;
+}

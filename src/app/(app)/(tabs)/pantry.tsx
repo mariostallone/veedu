@@ -47,7 +47,10 @@ export default function PantryTab() {
   );
 
   const addButton = (
-    <Button label="Add" onPress={() => router.push('/pantry/new')} style={{ minHeight: 40 }} />
+    <View style={{ flexDirection: 'row', gap: space.sm }}>
+      <Button label="Scan" variant="secondary" onPress={() => router.push('/scan')} style={{ minHeight: 40 }} />
+      <Button label="Add" onPress={() => router.push('/pantry/new')} style={{ minHeight: 40 }} />
+    </View>
   );
 
   if (pantry.isPending) {

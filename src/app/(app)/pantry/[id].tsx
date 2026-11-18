@@ -5,7 +5,9 @@ import { View } from 'react-native';
 import {
   Body,
   Button,
+  Caption,
   Card,
+  Chip,
   ChoiceChips,
   EmptyState,
   ErrorNote,
@@ -27,11 +29,23 @@ import {
   isValidIsoDate,
   mergeSuggestions,
   parseQty,
+  parseReadFields,
 } from '@/lib/domain';
 import type { PantryItem } from '@/lib/types';
 import { space } from '@/theme';
 
-type Params = { id: string; name?: string; category?: string; unit?: string; keep?: string };
+// Scans (label photo, barcode) hand their result over as route params; `read` lists the fields they filled.
+type Params = {
+  id: string;
+  name?: string;
+  category?: string;
+  unit?: string;
+  keep?: string;
+  qty?: string;
+  expires?: string;
+  barcode?: string;
+  read?: string;
+};
 
 export default function PantryEditor() {
   const params = useLocalSearchParams<Params>();
@@ -71,11 +85,14 @@ function EditorForm({ existing, all, prefill }: { existing?: PantryItem; all: Pa
   const [name, setName] = useState(existing?.name ?? prefill.name ?? '');
   const [category, setCategory] = useState(existing?.category ?? prefill.category ?? 'Other');
   const [unit, setUnit] = useState(existing?.unit ?? prefill.unit ?? 'pack');
-  const [qty, setQty] = useState(String(existing?.qty ?? 0));
+  const [qty, setQty] = useState(String(existing?.qty ?? prefill.qty ?? 0));
   const [keepMin, setKeepMin] = useState(String(existing?.keep_min ?? prefill.keep ?? 1));
   const [store, setStore] = useState(existing?.store ?? '');
-  const [expiry, setExpiry] = useState(existing?.expires_on ?? '');
+  const [expiry, setExpiry] = useState(existing?.expires_on ?? prefill.expires ?? '');
   const [notes, setNotes] = useState(existing?.notes ?? '');
+  const read = existing ? new Set<string>() : parseReadFields(prefill.read);
+  const readTag = (key: string) => (read.has(key) ? ' · read' : '');
+  const barcode = existing?.barcode ?? prefill.barcode ?? null;
   const [submitted, setSubmitted] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -106,6 +123,7 @@ function EditorForm({ existing, all, prefill }: { existing?: PantryItem; all: Pa
       store: store.trim() || null,
       expires_on: expiry.trim() || null,
       notes: notes.trim() || null,
+      ...(prefill.barcode && !existing?.barcode ? { barcode: prefill.barcode } : {}),
     };
     const options = { onSuccess: () => router.back() };
     if (existing) update.mutate({ id: existing.id, ...values }, options);
@@ -115,9 +133,12 @@ function EditorForm({ existing, all, prefill }: { existing?: PantryItem; all: Pa
   return (
     <Screen edges={['bottom']}>
       <Stack.Screen options={{ title: existing ? 'Edit item' : 'New item' }} />
+      {read.size > 0 ? (
+        <Caption>Filled in from your scan. Check the fields marked read, then save.</Caption>
+      ) : null}
       <Card style={{ paddingVertical: space.lg, gap: space.lg }}>
         <Field
-          label="Name"
+          label={`Name${readTag('name')}`}
           value={name}
           onChangeText={setName}
           placeholder="e.g. Basmati rice"
@@ -127,7 +148,7 @@ function EditorForm({ existing, all, prefill }: { existing?: PantryItem; all: Pa
         <View style={{ flexDirection: 'row', gap: space.md }}>
           <View style={{ flex: 1 }}>
             <Field
-              label="In stock"
+              label={`In stock${readTag('qty')}`}
               value={qty}
               onChangeText={setQty}
               keyboardType="decimal-pad"
@@ -146,11 +167,11 @@ function EditorForm({ existing, all, prefill }: { existing?: PantryItem; all: Pa
         </View>
       </Card>
 
-      <SectionLabel>Category</SectionLabel>
+      <SectionLabel right={read.has('category') ? <Chip label="read" tone="accent" /> : undefined}>Category</SectionLabel>
       <Field value={category} onChangeText={setCategory} placeholder="Category" accessibilityLabel="Category" />
       <ChoiceChips options={categories} value={category} onChange={(v) => v && setCategory(v)} />
 
-      <SectionLabel>Unit</SectionLabel>
+      <SectionLabel right={read.has('unit') ? <Chip label="read" tone="accent" /> : undefined}>Unit</SectionLabel>
       <Field value={unit} onChangeText={setUnit} placeholder="Unit" accessibilityLabel="Unit" autoCapitalize="none" />
       <ChoiceChips options={units} value={unit} onChange={(v) => v && setUnit(v)} />
 
@@ -161,7 +182,7 @@ function EditorForm({ existing, all, prefill }: { existing?: PantryItem; all: Pa
       <SectionLabel>Expiry and notes</SectionLabel>
       <Card style={{ paddingVertical: space.lg, gap: space.lg }}>
         <Field
-          label="Expiry date (optional)"
+          label={`Expiry date (optional)${readTag('expiry')}`}
           value={expiry}
           onChangeText={setExpiry}
           placeholder="YYYY-MM-DD"
@@ -180,6 +201,7 @@ function EditorForm({ existing, all, prefill }: { existing?: PantryItem; all: Pa
         />
       </Card>
 
+      {barcode ? <Caption>{existing?.barcode ? `Barcode ${barcode}` : `Barcode ${barcode} will be remembered for this item.`}</Caption> : null}
       <ErrorNote error={create.error ?? update.error ?? remove.error} />
       <Button label={existing ? 'Save changes' : 'Add to pantry'} onPress={save} loading={saving} />
 

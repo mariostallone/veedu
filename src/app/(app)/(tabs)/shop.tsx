@@ -82,6 +82,7 @@ export default function ShoppingTab() {
           <Button label="Add" onPress={() => submit(false)} disabled={!text.trim()} loading={add.isPending} />
         </View>
         <ChoiceChips options={stores} value={store} onChange={setStore} />
+        <Button label="Scan a note" variant="secondary" onPress={() => router.push('/scan/note')} />
         {duplicate ? (
           <View style={{ backgroundColor: c.warnSoft, borderRadius: radius.md, padding: space.md, gap: space.sm }}>
             <Body style={{ color: c.warn }}>{`"${duplicate}" is already on the list.`}</Body>

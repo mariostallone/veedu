@@ -5,8 +5,6 @@ import { test } from 'node:test';
 import {
   addDays,
   cacheBuster,
-  isReachable,
-  retryDelay,
   daysBetween,
   daysToGo,
   DEFAULT_STORES,
@@ -22,6 +20,7 @@ import {
   groupShopping,
   homeStats,
   initials,
+  isReachable,
   isValidIsoDate,
   mergeSuggestions,
   monthGrid,
@@ -36,6 +35,7 @@ import {
   relativeDay,
   repeatLabel,
   restockQty,
+  retryDelay,
   shiftMonth,
   stockLevel,
   storeOptions,
@@ -479,4 +479,103 @@ test('isReachable treats unknown as online', () => {
   assert.equal(isReachable({ isConnected: true, isInternetReachable: null }), true);
   assert.equal(isReachable({ isConnected: false, isInternetReachable: false }), false);
   assert.equal(isReachable({ isConnected: true, isInternetReachable: false }), false);
+});
+
+// --- Scanning (M6) ---
+
+test('normaliseBarcode keeps digits, pads UPC-A and rejects junk', async () => {
+  const d = await import('./domain.ts');
+  assert.equal(d.normaliseBarcode('8901234567890'), '8901234567890');
+  assert.equal(d.normaliseBarcode('012345678905'), '0012345678905');
+  assert.equal(d.normaliseBarcode(' 8901-2345 6789 0 '), '8901234567890');
+  assert.equal(d.normaliseBarcode('12345'), null);
+  assert.equal(d.normaliseBarcode('https://example.com'), null);
+});
+
+test('findByBarcode matches UPC-A and EAN-13 forms of the same code', async () => {
+  const d = await import('./domain.ts');
+  const items = [{ name: 'Tea', barcode: '0012345678905' }, { name: 'Salt', barcode: null }];
+  assert.equal(d.findByBarcode(items, '012345678905')?.name, 'Tea');
+  assert.equal(d.findByBarcode(items, '8901234567890'), undefined);
+  assert.equal(d.findByBarcode(items, 'abc'), undefined);
+});
+
+test('matchPantryName ignores case, punctuation and plurals', async () => {
+  const d = await import('./domain.ts');
+  const pantry = [{ name: 'Onion' }, { name: 'Toor dal' }, { name: 'Glass' }];
+  assert.equal(d.matchPantryName(pantry, 'onions')?.name, 'Onion');
+  assert.equal(d.matchPantryName(pantry, ' TOOR  Dal! ')?.name, 'Toor dal');
+  assert.equal(d.matchPantryName(pantry, 'glass')?.name, 'Glass');
+  assert.equal(d.matchPantryName(pantry, 'Moong dal'), undefined);
+  assert.equal(d.matchPantryName(pantry, '  '), undefined);
+});
+
+test('planNoteItems matches pantry names and unchecks items already on the list', async () => {
+  const d = await import('./domain.ts');
+  const rows = d.planNoteItems(
+    [
+      { text: 'onions', qty: 2, store_guess: 'Supermarket' },
+      { text: 'Milk', qty: 1, store_guess: null },
+      { text: 'Atta', qty: 1, store_guess: 'Indian grocery' },
+    ],
+    [{ name: 'Onion', id: 'p1' }],
+    [{ text: 'milk', done: false }, { text: 'Atta', done: true }],
+  );
+  assert.equal(rows[0].text, 'Onion');
+  assert.equal(rows[0].pantry?.id, 'p1');
+  assert.equal(rows[0].selected, true);
+  assert.equal(rows[1].duplicate, true);
+  assert.equal(rows[1].selected, false);
+  assert.equal(rows[2].duplicate, false, 'a checked-off item does not count as a duplicate');
+});
+
+test('labelToPrefill marks only the fields that were read', async () => {
+  const d = await import('./domain.ts');
+  const known = ['Grains & pulses', 'Other'];
+  const full = d.labelToPrefill(
+    { name: 'Basmati rice', size: 5, unit: 'kg', expires_on: '2027-03-31', category: 'grains & pulses' },
+    known,
+  );
+  assert.deepEqual(full, {
+    name: 'Basmati rice',
+    category: 'Grains & pulses',
+    unit: 'kg',
+    qty: '5',
+    expires: '2027-03-31',
+    read: 'name,category,unit,qty,expiry',
+  });
+  const sparse = d.labelToPrefill({ name: 'Ghee', size: null, unit: null, expires_on: '2027-02-31', category: 'Dairy' }, known);
+  assert.deepEqual(sparse, { name: 'Ghee', read: 'name' });
+  assert.deepEqual([...d.parseReadFields('name,unit')], ['name', 'unit']);
+  assert.equal(d.parseReadFields(undefined).size, 0);
+});
+
+test('parseOpenFoodFacts reads name, size and a category guess', async () => {
+  const d = await import('./domain.ts');
+  const info = d.parseOpenFoodFacts({
+    status: 1,
+    product: { product_name: ' Basmati Rice ', quantity: '5 kg', categories_tags: ['en:cereals', 'en:rices'] },
+  });
+  assert.deepEqual(info, { name: 'Basmati Rice', size: 5, unit: 'kg', category: 'Grains & pulses' });
+  assert.deepEqual(d.parseOpenFoodFacts({ status: 1, product: { product_name: 'Soda', quantity: '1,5 L' } }), {
+    name: 'Soda',
+    size: 1.5,
+    unit: 'l',
+    category: null,
+  });
+  assert.equal(d.parseOpenFoodFacts({ status: 0, status_verbose: 'product not found' }), null);
+  assert.equal(d.parseOpenFoodFacts({ status: 1, product: {} }), null);
+  assert.equal(d.parseOpenFoodFacts(null), null);
+});
+
+test('barcodeToPrefill falls back to just the barcode', async () => {
+  const d = await import('./domain.ts');
+  assert.deepEqual(d.barcodeToPrefill('8901234567890', null), { barcode: '8901234567890' });
+  assert.deepEqual(d.barcodeToPrefill('1', { name: 'Tea', size: 250, unit: 'g', category: null }), {
+    barcode: '1',
+    name: 'Tea',
+    unit: 'g',
+    qty: '250',
+    read: 'name,unit,qty',
+  });
 });
